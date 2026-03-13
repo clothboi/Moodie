@@ -461,6 +461,9 @@
 
 .moodboard-grid .board-media-image {
   display: block;
+  max-width: none !important;
+  max-height: none !important;
+  border: 0;
   user-select: none;
   pointer-events: none;
 }
@@ -575,7 +578,13 @@
   bottom: 10px;
   width: calc(100% - 28px);
   height: 18px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   pointer-events: auto;
+  -webkit-appearance: none;
   appearance: none;
   background: transparent;
 }
