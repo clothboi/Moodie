@@ -17,6 +17,7 @@
 }
 
 .moodboard-grid-host {
+  height: 100%;
   min-height: 100%;
   margin: 0;
 }
@@ -26,7 +27,7 @@
   display: block;
   min-width: 320px;
   min-height: 720px;
-  height: clamp(640px, 85vh, 960px);
+  height: 100%;
   overflow: hidden;
 }
 
@@ -492,6 +493,8 @@
   background: rgba(8, 10, 13, 0.72);
   backdrop-filter: blur(10px);
   cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .moodboard-grid .board-tile__delete {
@@ -562,7 +565,7 @@
 }
 
 .moodboard-grid .board-tile__link {
-  top: 36px;
+  top: 48px;
   left: 50%;
   transform: translateX(-50%);
   border-radius: 999px;
