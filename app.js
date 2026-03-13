@@ -75,6 +75,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const EXPORT_MAX_EDGE = 4096;
   const EXPORT_STATUS_DURATION_MS = 2800;
   const EXPORT_EDGE_OPTIONS = [1024, 2048, 3072, 4096];
+  const VIEWPORT_VERTICAL_BUFFER_ROWS = 4;
   const LAYOUT_CONTROL_CONFIG = [
     { key: 'gapPx', role: 'gap', label: 'Space', ariaLabel: 'space' },
     { key: 'radiusPx', role: 'radius', label: 'Corners', ariaLabel: 'corners' },
@@ -2043,7 +2044,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const previewItems = previewResult?.items ?? state.items;
     const rows = getBoardRows(previewItems);
     const visibleHeight = refs.shell?.clientHeight ?? refs.host?.clientHeight ?? window.innerHeight;
-    const logicalBoardHeight = Math.max(visibleHeight / state.zoom, rows * GRID_SPEC.rowPx);
+    const minScrollableHeight = visibleHeight / state.zoom + GRID_SPEC.rowPx * VIEWPORT_VERTICAL_BUFFER_ROWS;
+    const logicalBoardHeight = Math.max(minScrollableHeight, rows * GRID_SPEC.rowPx);
     const currentItemsById = new Map(state.items.map((item) => [item.id, item]));
 
     refs.board.style.width = `${Math.max(refs.shell?.clientWidth ?? 0, GRID_WIDTH * state.zoom)}px`;
