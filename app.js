@@ -3261,6 +3261,15 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
   }
 
+  function openImportPicker() {
+    if (!refs.importInput) {
+      return;
+    }
+
+    refs.importInput.value = '';
+    refs.importInput.click();
+  }
+
   function buildAppShell() {
     refs.host.classList.add('moodboard-grid-host');
     refs.host.innerHTML = `
@@ -3281,6 +3290,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
           <div class="board-hud__rule" aria-hidden="true"></div>
           <div class="board-hud__actions">
             <button type="button" class="board-hud__button" data-role="new-project">Start New Project</button>
+            <button type="button" class="board-hud__button" data-role="import-images">Import</button>
+            <input type="file" data-role="import-input" accept="image/*" multiple hidden />
             <button
               type="button"
               class="board-hud__button"
@@ -3372,6 +3383,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.imageCount = getRoleRef('image-count');
     refs.importStatus = getRoleRef('import-status');
     refs.newProject = getRoleRef('new-project');
+    refs.importImages = getRoleRef('import-images');
+    refs.importInput = getRoleRef('import-input');
     refs.exportPng = getRoleRef('export-png');
     refs.layoutToggle = getRoleRef('layout-toggle');
     refs.hintsToggle = getRoleRef('hints-toggle');
@@ -3411,6 +3424,22 @@ function createMoodboardGrid(container, initialOptions = {}) {
       setActiveWidget();
     });
     addManagedEventListener(refs.newProject, 'click', startNewProject);
+    addManagedEventListener(refs.importImages, 'click', () => {
+      setActiveWidget();
+      openImportPicker();
+    });
+    addManagedEventListener(refs.importInput, 'change', async (event) => {
+      setActiveWidget();
+      const files = Array.from(event.currentTarget.files || []).filter((file) => file.type.startsWith('image/'));
+
+      if (!files.length) {
+        event.currentTarget.value = '';
+        return;
+      }
+
+      await insertFiles(files, null, null);
+      event.currentTarget.value = '';
+    });
     addManagedEventListener(refs.exportPng, 'click', toggleExportPanel);
     addManagedEventListener(refs.layoutToggle, 'click', () => {
       toggleLayoutPanel();
