@@ -1,0 +1,805 @@
+.moodboard-grid {
+  --accent-blue-border: rgba(125, 193, 255, 0.42);
+  --accent-blue-border-strong: rgba(151, 208, 255, 0.64);
+  --accent-blue-fill: rgba(44, 114, 176, 0.34);
+  --accent-blue-fill-soft: rgba(52, 132, 200, 0.16);
+  color-scheme: dark;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(101, 113, 126, 0.14), transparent 32%),
+    linear-gradient(180deg, #2a2d31 0%, #1b1d20 100%);
+  color: #eef2f5;
+}
+
+.moodboard-grid,
+.moodboard-grid * {
+  box-sizing: border-box;
+}
+
+.moodboard-grid-host {
+  min-height: 100%;
+  margin: 0;
+}
+
+.moodboard-grid {
+  position: relative;
+  display: block;
+  min-width: 320px;
+  min-height: 720px;
+  height: clamp(640px, 85vh, 960px);
+  overflow: hidden;
+}
+
+.moodboard-grid button,
+.moodboard-grid input,
+.moodboard-grid textarea,
+.moodboard-grid select {
+  font: inherit;
+}
+
+.moodboard-grid .app {
+  min-height: 100%;
+}
+
+.moodboard-grid .board-shell {
+  height: 100%;
+  overflow: auto;
+}
+
+.moodboard-grid .board-shell--panning,
+.moodboard-grid .board-shell--panning * {
+  cursor: grabbing !important;
+}
+
+.moodboard-grid .board-canvas {
+  --board-radius: 4px;
+  position: relative;
+  min-height: 100%;
+  min-width: 100%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    rgba(22, 24, 27, 0.96);
+  overflow: visible;
+}
+
+.moodboard-grid .board-canvas--drop {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.moodboard-grid .board-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+.moodboard-grid .board-overlay-layer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.moodboard-grid .board-hud {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(628px, calc(100% - 28px));
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(10, 12, 14, 0.62);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(0, 0, 0, 0.18);
+}
+
+.moodboard-grid .board-hud__bar {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.moodboard-grid .board-hud__title,
+.moodboard-grid .board-hud__status,
+.moodboard-grid .board-hud__count {
+  margin: 0;
+  color: #f2f6fa;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.06);
+}
+
+.moodboard-grid .board-hud__title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.moodboard-grid .board-hud__status,
+.moodboard-grid .board-hud__count {
+  font-size: 0.8rem;
+  color: #c8d0d7;
+}
+
+.moodboard-grid .board-hud__status {
+  justify-self: center;
+  text-align: center;
+}
+
+.moodboard-grid .board-hud__status[data-tone="success"] {
+  color: #d8eeff;
+}
+
+.moodboard-grid .board-hud__status[data-tone="error"] {
+  color: #ffb7b0;
+}
+
+.moodboard-grid .board-hud__status[data-tone="working"] {
+  color: #eef2f5;
+}
+
+.moodboard-grid .board-hud__count {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.moodboard-grid .board-hud__rule {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.moodboard-grid .board-hud__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.moodboard-grid .board-hud__button {
+  align-self: start;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  color: #c8d0d7;
+  font-size: 0.8rem;
+  line-height: 1;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.moodboard-grid .board-hud__button:hover,
+.moodboard-grid .board-hud__button:focus-visible,
+.moodboard-grid .board-hud__button--active {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #eef2f5;
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.moodboard-grid .board-hud__button:disabled {
+  cursor: default;
+  color: rgba(200, 208, 215, 0.42);
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  transform: none;
+}
+
+.moodboard-grid .board-hud__button--layout {
+  white-space: nowrap;
+}
+
+.moodboard-grid .board-layout-panel,
+.moodboard-grid .board-hints-panel,
+.moodboard-grid .board-export-panel {
+  position: absolute;
+  z-index: 1995;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(628px, calc(100% - 28px));
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(10, 12, 14, 0.72);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 18px 38px rgba(0, 0, 0, 0.22);
+}
+
+.moodboard-grid .board-layout-panel[hidden],
+.moodboard-grid .board-hints-panel[hidden],
+.moodboard-grid .board-export-panel[hidden] {
+  display: none;
+}
+
+.moodboard-grid .board-layout-panel__title,
+.moodboard-grid .board-hints-panel__title,
+.moodboard-grid .board-export-panel__title {
+  margin: 0;
+  color: #eef2f5;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.moodboard-grid .board-hints-panel__list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 18px;
+  color: #c8d0d7;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.moodboard-grid .board-export-panel__meta {
+  display: grid;
+  gap: 8px;
+}
+
+.moodboard-grid .board-export-panel__label,
+.moodboard-grid .board-export-panel__value {
+  color: #c8d0d7;
+  font-size: 0.8rem;
+}
+
+.moodboard-grid .board-export-panel__value {
+  color: #eef2f5;
+}
+
+.moodboard-grid .board-export-panel__sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.moodboard-grid .board-export-panel__size-button,
+.moodboard-grid .board-export-panel__action {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d8e0e7;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.moodboard-grid .board-export-panel__size-button:hover,
+.moodboard-grid .board-export-panel__size-button:focus-visible,
+.moodboard-grid .board-export-panel__action:hover,
+.moodboard-grid .board-export-panel__action:focus-visible {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef2f5;
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.moodboard-grid .board-export-panel__size-button:disabled,
+.moodboard-grid .board-export-panel__action:disabled {
+  cursor: default;
+  color: rgba(200, 208, 215, 0.42);
+  border-color: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  transform: none;
+}
+
+.moodboard-grid .board-export-panel__size-button--active,
+.moodboard-grid .board-export-panel__size-button--active:hover,
+.moodboard-grid .board-export-panel__size-button--active:focus-visible,
+.moodboard-grid .board-export-panel__action--primary,
+.moodboard-grid .board-export-panel__action--primary:hover,
+.moodboard-grid .board-export-panel__action--primary:focus-visible {
+  border-color: var(--accent-blue-border-strong);
+  background: var(--accent-blue-fill);
+  color: #d8eeff;
+}
+
+.moodboard-grid .board-export-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.moodboard-grid .board-layout-panel__row {
+  display: grid;
+  grid-template-columns: 72px 32px minmax(0, 1fr) 32px 52px;
+  gap: 10px;
+  align-items: center;
+}
+
+.moodboard-grid .board-layout-panel__label,
+.moodboard-grid .board-layout-panel__value {
+  color: #c8d0d7;
+  font-size: 0.8rem;
+}
+
+.moodboard-grid .board-layout-panel__value {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.moodboard-grid .board-layout-panel__stepper {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #eaf0f5;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.moodboard-grid .board-layout-panel__stepper:hover,
+.moodboard-grid .board-layout-panel__stepper:focus-visible {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.moodboard-grid .board-layout-panel__slider {
+  width: 100%;
+  accent-color: rgb(125, 193, 255);
+  cursor: ew-resize;
+}
+
+.moodboard-grid .grid-overlay {
+  position: absolute;
+  inset: 0;
+  height: var(--grid-height);
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.05) 0,
+      rgba(255, 255, 255, 0.05) 1px,
+      transparent 1px,
+      transparent var(--grid-row-size)
+    ),
+    repeating-linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0.08) 0,
+      rgba(255, 255, 255, 0.08) 1px,
+      transparent 1px,
+      transparent var(--grid-column-size)
+    );
+  pointer-events: none;
+}
+
+.moodboard-grid .board-empty-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  text-align: center;
+  color: rgba(237, 242, 247, 0.8);
+  pointer-events: none;
+}
+
+.moodboard-grid .board-empty-state p {
+  margin: 0;
+}
+
+.moodboard-grid .board-tile,
+.moodboard-grid .board-drag-preview,
+.moodboard-grid .board-placeholder {
+  position: absolute;
+  border-radius: var(--board-radius, 4px);
+}
+
+.moodboard-grid .board-tile {
+  overflow: hidden;
+  cursor: grab;
+  background: #20242a;
+  text-align: left;
+  outline: 1px solid rgba(255, 255, 255, 0.06);
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease,
+    outline-color 160ms ease;
+}
+
+.moodboard-grid .board-tile:hover {
+  transform: translateY(-1px);
+}
+
+.moodboard-grid .board-tile:active {
+  cursor: grabbing;
+}
+
+.moodboard-grid .board-tile--selected {
+  outline-color: rgba(255, 255, 255, 0.2);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 18px 40px rgba(0, 0, 0, 0.26);
+}
+
+.moodboard-grid .board-tile--multi-selected {
+  outline-color: var(--accent-blue-border);
+  box-shadow:
+    0 0 0 1px var(--accent-blue-border),
+    0 0 0 4px rgba(44, 114, 176, 0.08),
+    0 18px 40px rgba(0, 0, 0, 0.26);
+}
+
+.moodboard-grid .board-tile--affected {
+  outline-color: var(--accent-blue-border);
+  box-shadow:
+    0 0 0 1px var(--accent-blue-border),
+    0 0 0 4px rgba(44, 114, 176, 0.08),
+    0 18px 40px rgba(0, 0, 0, 0.26);
+}
+
+.moodboard-grid .board-media-image,
+.moodboard-grid .board-tile__shadow {
+  position: absolute;
+}
+
+.moodboard-grid .board-media-image {
+  display: block;
+  user-select: none;
+  pointer-events: none;
+}
+
+.moodboard-grid .board-tile__shadow {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, transparent 16%, rgba(0, 0, 0, 0.34) 100%);
+}
+
+.moodboard-grid .board-tile__actions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.moodboard-grid .board-tile__delete,
+.moodboard-grid .board-tile__handle,
+.moodboard-grid .board-tile__link,
+.moodboard-grid .board-crop-anchor {
+  position: absolute;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f1f4f7;
+  background: rgba(8, 10, 13, 0.72);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+.moodboard-grid .board-tile__delete {
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.moodboard-grid .board-tile__handle {
+  top: 50%;
+  width: 14px;
+  height: 52px;
+  padding: 0;
+  border-radius: 999px;
+  transform: translateY(-50%);
+}
+
+.moodboard-grid .board-tile__handle::after {
+  content: "";
+  position: absolute;
+  inset: 12px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.moodboard-grid .board-tile__handle--left {
+  left: 8px;
+}
+
+.moodboard-grid .board-tile__handle--right {
+  right: 8px;
+}
+
+.moodboard-grid .board-tile__delete,
+.moodboard-grid .board-tile__handle,
+.moodboard-grid .board-tile__link,
+.moodboard-grid .board-tile__crop-slider,
+.moodboard-grid .board-crop-anchor,
+.moodboard-grid .board-tile {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.moodboard-grid .board-tile__delete:hover,
+.moodboard-grid .board-tile__delete:focus-visible,
+.moodboard-grid .board-tile__handle:hover,
+.moodboard-grid .board-tile__handle:focus-visible,
+.moodboard-grid .board-tile__link:hover,
+.moodboard-grid .board-tile__link:focus-visible,
+.moodboard-grid .board-crop-anchor:hover,
+.moodboard-grid .board-crop-anchor:focus-visible {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(14, 17, 21, 0.86);
+  outline: none;
+}
+
+.moodboard-grid .board-tile__delete:focus-visible,
+.moodboard-grid .board-tile__handle:focus-visible,
+.moodboard-grid .board-tile__link:focus-visible,
+.moodboard-grid .board-crop-anchor:focus-visible,
+.moodboard-grid .board-tile:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 2px;
+}
+
+.moodboard-grid .board-tile__link {
+  top: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.moodboard-grid .board-tile__crop-slider {
+  position: absolute;
+  left: 14px;
+  bottom: 10px;
+  width: calc(100% - 28px);
+  height: 18px;
+  pointer-events: auto;
+  appearance: none;
+  background: transparent;
+}
+
+.moodboard-grid .board-tile__crop-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.moodboard-grid .board-tile__crop-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid var(--accent-blue-border-strong);
+  border-radius: 999px;
+  background: #d8eeff;
+  box-shadow: 0 0 0 4px rgba(52, 132, 200, 0.16);
+}
+
+.moodboard-grid .board-tile__crop-slider::-moz-range-track {
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.moodboard-grid .board-tile__crop-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--accent-blue-border-strong);
+  border-radius: 999px;
+  background: #d8eeff;
+  box-shadow: 0 0 0 4px rgba(52, 132, 200, 0.16);
+}
+
+.moodboard-grid .board-crop-anchor {
+  width: var(--crop-anchor-size, 30px);
+  height: var(--crop-anchor-size, 30px);
+  padding: 0;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 22px rgba(0, 0, 0, 0.24);
+  transition:
+    left 180ms ease,
+    top 180ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.moodboard-grid .board-crop-anchor--dragging {
+  transition: none;
+}
+
+.moodboard-grid .board-crop-anchor__dot {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: var(--crop-anchor-dot-size, 8px);
+  height: var(--crop-anchor-dot-size, 8px);
+  border-radius: 999px;
+  background: #d8eeff;
+  box-shadow:
+    0 0 0 4px rgba(52, 132, 200, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.18);
+  transform: translate(-50%, -50%);
+}
+
+.moodboard-grid .board-tile__link--active {
+  border-color: var(--accent-blue-border);
+  color: #d8eeff;
+  background: var(--accent-blue-fill);
+}
+
+.moodboard-grid .board-tile__link--active:hover,
+.moodboard-grid .board-tile__link--active:focus-visible {
+  border-color: var(--accent-blue-border-strong);
+  background: rgba(52, 132, 200, 0.42);
+}
+
+.moodboard-grid .board-tile__link--disabled,
+.moodboard-grid .board-tile__link:disabled {
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(233, 238, 244, 0.52);
+  background: rgba(54, 60, 68, 0.5);
+  cursor: default;
+}
+
+.moodboard-grid .board-placeholder {
+  border: 1px dashed rgba(232, 238, 243, 0.58);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01)),
+    rgba(255, 255, 255, 0.03);
+  pointer-events: none;
+  z-index: 1800;
+}
+
+.moodboard-grid .board-placeholder--affected {
+  border-style: solid;
+  border-color: rgba(176, 196, 214, 0.18);
+  background:
+    linear-gradient(180deg, rgba(167, 189, 209, 0.08), rgba(167, 189, 209, 0.03)),
+    rgba(120, 138, 156, 0.07);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 0 0 1px rgba(9, 12, 16, 0.16);
+  z-index: 12;
+}
+
+.moodboard-grid .board-placeholder--accent {
+  border-color: var(--accent-blue-border);
+  background:
+    linear-gradient(180deg, rgba(125, 193, 255, 0.14), rgba(125, 193, 255, 0.06)),
+    var(--accent-blue-fill-soft);
+  box-shadow:
+    inset 0 0 0 1px rgba(216, 238, 255, 0.08),
+    0 0 0 1px rgba(24, 66, 106, 0.24);
+}
+
+.moodboard-grid .board-marquee {
+  position: absolute;
+  border: 1px solid var(--accent-blue-border-strong);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(125, 193, 255, 0.14), rgba(125, 193, 255, 0.04)),
+    rgba(44, 114, 176, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(216, 238, 255, 0.08),
+    0 0 0 1px rgba(44, 114, 176, 0.12);
+  pointer-events: none;
+  z-index: 2400;
+}
+
+.moodboard-grid .board-drag-preview {
+  overflow: hidden;
+  box-shadow:
+    0 22px 44px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+  z-index: 2200;
+}
+
+.moodboard-grid .board-resize-choice {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(8, 10, 13, 0.82);
+  box-shadow:
+    0 16px 30px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+  color: #f1f4f7;
+  pointer-events: none;
+  z-index: 2300;
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    opacity 140ms ease;
+}
+
+.moodboard-grid .board-resize-choice--active {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(18, 21, 26, 0.94);
+  transform: scale(1.06);
+}
+
+.moodboard-grid .board-resize-choice--disabled {
+  opacity: 0.38;
+}
+
+.moodboard-grid .board-resize-choice__icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.moodboard-grid.is-dragging {
+  user-select: none;
+}
+
+.moodboard-grid.is-resizing {
+  user-select: none;
+}
+
+.moodboard-grid.is-panning {
+  user-select: none;
+}
+
+.moodboard-grid.is-marqueeing {
+  user-select: none;
+}
+
+@media (max-width: 900px) {
+  .moodboard-grid .board-hud {
+    width: calc(100% - 20px);
+    top: 10px;
+    left: 10px;
+    padding: 10px 12px;
+  }
+
+  .moodboard-grid .board-layout-panel,
+  .moodboard-grid .board-hints-panel,
+  .moodboard-grid .board-export-panel {
+    width: calc(100% - 20px);
+  }
+
+  .moodboard-grid .board-hud__bar {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .moodboard-grid .board-hud__status,
+  .moodboard-grid .board-hud__count {
+    justify-self: start;
+    text-align: left;
+  }
+
+  .moodboard-grid .board-layout-panel__row {
+    grid-template-columns: 1fr 32px minmax(0, 1fr) 32px 52px;
+    gap: 8px;
+  }
+}
+
