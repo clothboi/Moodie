@@ -190,6 +190,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return Math.min(Math.max(value, min), max);
   }
 
+  function getMinZoom() {
+    const viewportWidth = refs.shell?.clientWidth ?? refs.host?.clientWidth ?? window.innerWidth;
+
+    if (!viewportWidth || !GRID_WIDTH) {
+      return ZOOM_MIN;
+    }
+
+    return Math.max(ZOOM_MIN, viewportWidth / GRID_WIDTH);
+  }
+
   function snapLayoutValue(value) {
     const clamped = clamp(value, LAYOUT_MIN_PX, LAYOUT_MAX_PX);
     return Math.round(clamped / LAYOUT_STEP_PX) * LAYOUT_STEP_PX;
@@ -215,7 +225,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function clampZoom(value) {
-    return clamp(Math.round(value / ZOOM_STEP) * ZOOM_STEP, ZOOM_MIN, ZOOM_MAX);
+    return clamp(Math.round(value / ZOOM_STEP) * ZOOM_STEP, getMinZoom(), ZOOM_MAX);
   }
 
   function getDefaultZoom() {
@@ -3578,6 +3588,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     });
 
     addManagedEventListener(window, 'resize', () => {
+      state.zoom = clampZoom(state.zoom);
       render();
     });
 
