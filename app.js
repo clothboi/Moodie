@@ -1718,6 +1718,24 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
+  function getImportTargetPoint() {
+    if (!refs.shell || !refs.stage) {
+      return null;
+    }
+
+    const shellRect = refs.shell.getBoundingClientRect();
+    const boardRect = getStageRect();
+    const hudBottom = refs.hud?.getBoundingClientRect().bottom ?? shellRect.top;
+    const clientX = shellRect.left + refs.shell.clientWidth / 2;
+    const preferredClientY = shellRect.top + refs.shell.clientHeight / 2;
+    const safeClientY = Math.min(
+      shellRect.bottom - 24,
+      Math.max(hudBottom + 24, preferredClientY),
+    );
+
+    return getPointWithinBoard(boardRect, clientX, safeClientY);
+  }
+
   function setImporting(isImporting) {
     state.isImporting = isImporting;
     renderHud();
@@ -3437,7 +3455,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         return;
       }
 
-      await insertFiles(files, null, null);
+      await insertFiles(files, getImportTargetPoint(), null);
       event.currentTarget.value = '';
     });
     addManagedEventListener(refs.exportPng, 'click', toggleExportPanel);
