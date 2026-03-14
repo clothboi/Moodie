@@ -538,33 +538,25 @@
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
       transparent 2.2px
     ),
-    radial-gradient(
-      circle at center,
-      var(--board-backdrop-color, #1b1d20) 0,
-      var(--board-backdrop-color, #1b1d20) 3px,
-      transparent 3.4px
-    ),
     repeating-linear-gradient(
       to bottom,
       var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
-      transparent 1px,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 2px,
+      transparent 2px,
       transparent var(--grid-row-size)
     ),
     repeating-linear-gradient(
       to right,
       var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
-      transparent 1px,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 2px,
+      transparent 2px,
       transparent var(--grid-row-size)
     );
   background-size:
     var(--grid-column-size) calc(var(--grid-row-size) * 3),
-    var(--grid-column-size) calc(var(--grid-row-size) * 3),
     auto,
     auto;
   background-position:
-    calc(var(--grid-column-size) / -2) calc((var(--grid-row-size) * 3) / -2),
     calc(var(--grid-column-size) / -2) calc((var(--grid-row-size) * 3) / -2),
     0 0,
     0 0;
