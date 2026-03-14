@@ -541,8 +541,8 @@
     radial-gradient(
       circle at center,
       var(--board-backdrop-color, #1b1d20) 0,
-      var(--board-backdrop-color, #1b1d20) 4px,
-      transparent 4.2px
+      var(--board-backdrop-color, #1b1d20) 8px,
+      transparent 8.2px
     ),
     repeating-linear-gradient(
       to bottom,
