@@ -1989,7 +1989,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     if (rerender) {
-      renderHud();
+      render();
     }
   }
 
@@ -2607,12 +2607,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       ? `${visibleHeight}px`
       : `${logicalBoardHeight * state.zoom}px`;
     refs.board.style.setProperty('--board-radius', `${getRadiusPx()}px`);
+    refs.board.style.setProperty('--board-backdrop-color', state.exportBackgroundHex);
     refs.stage.style.width = `${GRID_WIDTH}px`;
     refs.stage.style.height = `${logicalBoardHeight}px`;
     refs.stage.style.transform = state.isMobileMode
       ? `translate(${viewportTransform.offsetX}px, ${viewportTransform.offsetY}px) scale(${viewportTransform.zoom})`
       : `scale(${state.zoom})`;
     refs.stage.style.setProperty('--board-radius', `${getRadiusPx()}px`);
+    refs.stage.style.setProperty('--board-backdrop-color', state.exportBackgroundHex);
     refs.stage.replaceChildren();
 
     const grid = document.createElement('div');
@@ -4134,7 +4136,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         setExportBackgroundHex(state.exportBackgroundHexDraft, { syncDraft: false, rerender: false });
       }
 
-      renderHud();
+      render();
     });
     addManagedEventListener(refs.layoutBackgroundHex, 'blur', () => {
       commitExportBackgroundHexDraft();
