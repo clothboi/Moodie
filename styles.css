@@ -549,8 +549,8 @@
     radial-gradient(
       circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
-      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 3px,
-      transparent 3.2px
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
+      transparent 2.2px
     );
   background-size:
     auto,
