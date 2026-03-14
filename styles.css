@@ -535,21 +535,21 @@
     radial-gradient(
       circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
-      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2.5px,
-      transparent 2.7px
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
+      transparent 2.2px
     ),
     repeating-linear-gradient(
       to bottom,
       var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 2px,
-      transparent 2px,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
+      transparent 1px,
       transparent var(--grid-row-size)
     ),
     repeating-linear-gradient(
       to right,
       var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 2px,
-      transparent 2px,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
+      transparent 1px,
       transparent var(--grid-row-size)
     );
   background-size:
@@ -557,7 +557,7 @@
     auto,
     auto;
   background-position:
-    calc(1px - (var(--grid-column-size) / 2)) calc(1px - ((var(--grid-row-size) * 3) / 2)),
+    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2)),
     0 0,
     0 0;
   pointer-events: none;
