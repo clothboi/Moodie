@@ -3970,21 +3970,29 @@ function createMoodboardGrid(container, initialOptions = {}) {
             <span class="board-layout-panel__label">Backdrop</span>
             <input
               type="color"
-              class="board-export-panel__color-picker"
+              class="board-export-panel__color-picker board-layout-panel__color-picker"
               data-role="layout-background-color"
               value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
               aria-label="Choose export background colour"
             />
-            <input
-              type="text"
-              class="board-export-panel__hex-input"
-              data-role="layout-background-hex"
-              value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
-              maxlength="7"
-              spellcheck="false"
-              autocapitalize="characters"
-              aria-label="Export background HEX value"
-            />
+            <div class="board-layout-panel__backdrop-controls">
+              <input
+                type="text"
+                class="board-export-panel__hex-input"
+                data-role="layout-background-hex"
+                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+                maxlength="7"
+                spellcheck="false"
+                autocapitalize="characters"
+                aria-label="Export background HEX value"
+              />
+              <button
+                type="button"
+                class="board-layout-panel__reset"
+                data-role="layout-background-reset"
+                aria-label="Reset backdrop colour"
+              >Reset</button>
+            </div>
           </div>
         </div>
         <div class="board-export-panel" data-role="export-panel" hidden>
@@ -4070,6 +4078,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportBackgroundModes = getRoleRef('export-background-modes');
     refs.layoutBackgroundColor = getRoleRef('layout-background-color');
     refs.layoutBackgroundHex = getRoleRef('layout-background-hex');
+    refs.layoutBackgroundReset = getRoleRef('layout-background-reset');
     refs.exportOutputSize = getRoleRef('export-output-size');
     refs.exportSizeOptions = getRoleRef('export-size-options');
     refs.exportCancel = getRoleRef('export-cancel');
@@ -4172,6 +4181,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
         commitExportBackgroundHexDraft();
         refs.layoutBackgroundHex.blur();
       }
+    });
+    addManagedEventListener(refs.layoutBackgroundReset, 'click', () => {
+      setExportBackgroundHex(DEFAULT_EXPORT_BACKGROUND_HEX);
     });
     addManagedEventListener(refs.exportCancel, 'click', () => {
       closeFloatingPanels();

@@ -449,7 +449,43 @@
 }
 
 .moodboard-grid .board-layout-panel__row--color {
-  grid-template-columns: 72px 88px minmax(0, 1fr);
+  grid-template-columns: 72px 112px minmax(0, 1fr);
+}
+
+.moodboard-grid .board-layout-panel__backdrop-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.moodboard-grid .board-layout-panel__color-picker {
+  min-height: 46px;
+}
+
+.moodboard-grid .board-layout-panel__reset {
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d8e0e7;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.moodboard-grid .board-layout-panel__reset:hover,
+.moodboard-grid .board-layout-panel__reset:focus-visible {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: #eef2f5;
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .moodboard-grid .board-layout-panel__label,
@@ -511,15 +547,19 @@
       transparent var(--grid-row-size)
     ),
     radial-gradient(
-      circle at 1px 1px,
+      circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
-      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 1px,
-      transparent 1.2px
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
+      transparent 2.2px
     );
   background-size:
     auto,
     auto,
     var(--grid-column-size) calc(var(--grid-row-size) * 3);
+  background-position:
+    0 0,
+    0 0,
+    calc(var(--grid-column-size) / 2) calc((var(--grid-row-size) * 3) / 2);
   pointer-events: none;
 }
 
@@ -976,7 +1016,7 @@
   }
 
   .moodboard-grid .board-layout-panel__row--color {
-    grid-template-columns: 1fr 88px minmax(0, 1fr);
+    grid-template-columns: 1fr 112px minmax(0, 1fr);
   }
 
   .moodboard-grid.is-mobile-mode .board-hud__actions {
