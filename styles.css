@@ -495,61 +495,21 @@
   position: absolute;
   inset: 0;
   height: var(--grid-height);
-  background-color: var(--board-backdrop-color, #1b1d20);
   background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(0, 0, 0, 0.04)),
     repeating-linear-gradient(
       to bottom,
-      rgba(255, 255, 255, 0.09) 0,
-      rgba(255, 255, 255, 0.09) 1px,
+      rgba(255, 255, 255, 0.05) 0,
+      rgba(255, 255, 255, 0.05) 1px,
       transparent 1px,
-      transparent 1px,
-      transparent 22px
+      transparent var(--grid-row-size)
     ),
     repeating-linear-gradient(
       to right,
-      rgba(255, 255, 255, 0.09) 0,
-      rgba(255, 255, 255, 0.09) 1px,
+      rgba(255, 255, 255, 0.08) 0,
+      rgba(255, 255, 255, 0.08) 1px,
       transparent 1px,
-      transparent 1px,
-      transparent 22px
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      rgba(255, 255, 255, 0.16) 0,
-      rgba(255, 255, 255, 0.16) 1px,
-      transparent 1px,
-      transparent 110px
-    ),
-    repeating-linear-gradient(
-      to right,
-      rgba(255, 255, 255, 0.16) 0,
-      rgba(255, 255, 255, 0.16) 1px,
-      transparent 1px,
-      transparent 110px
-    ),
-    linear-gradient(
-      to bottom,
-      transparent calc(50% - 7px),
-      rgba(255, 255, 255, 0.68) calc(50% - 7px),
-      rgba(255, 255, 255, 0.68) calc(50% + 7px),
-      transparent calc(50% + 7px)
-    ),
-    linear-gradient(
-      to right,
-      transparent calc(50% - 7px),
-      rgba(255, 255, 255, 0.68) calc(50% - 7px),
-      rgba(255, 255, 255, 0.68) calc(50% + 7px),
-      transparent calc(50% + 7px)
+      transparent var(--grid-column-size)
     );
-  background-size:
-    auto,
-    auto,
-    auto,
-    auto,
-    auto,
-    110px 110px,
-    110px 110px;
   pointer-events: none;
 }
 
