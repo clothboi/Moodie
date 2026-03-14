@@ -535,8 +535,8 @@
     radial-gradient(
       circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
-      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
-      transparent 2.2px
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2.5px,
+      transparent 2.7px
     ),
     repeating-linear-gradient(
       to bottom,
@@ -557,7 +557,7 @@
     auto,
     auto;
   background-position:
-    calc(var(--grid-column-size) / -2) calc((var(--grid-row-size) * 3) / -2),
+    calc(1px - (var(--grid-column-size) / 2)) calc(1px - ((var(--grid-row-size) * 3) / 2)),
     0 0,
     0 0;
   pointer-events: none;
