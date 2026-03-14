@@ -449,7 +449,7 @@
 }
 
 .moodboard-grid .board-layout-panel__row--color {
-  grid-template-columns: 72px 112px minmax(0, 1fr);
+  grid-template-columns: 72px 168px minmax(0, 1fr);
 }
 
 .moodboard-grid .board-layout-panel__backdrop-controls {
@@ -547,7 +547,7 @@
       transparent var(--grid-row-size)
     ),
     radial-gradient(
-      circle at center,
+      circle at 0 0,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
       transparent 2.2px
@@ -559,7 +559,7 @@
   background-position:
     0 0,
     0 0,
-    calc(var(--grid-column-size) / 2) calc((var(--grid-row-size) * 3) / 2);
+    0 0;
   pointer-events: none;
 }
 
@@ -1016,7 +1016,7 @@
   }
 
   .moodboard-grid .board-layout-panel__row--color {
-    grid-template-columns: 1fr 112px minmax(0, 1fr);
+    grid-template-columns: 1fr 168px minmax(0, 1fr);
   }
 
   .moodboard-grid.is-mobile-mode .board-hud__actions {
