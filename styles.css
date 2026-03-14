@@ -498,18 +498,28 @@
   background-image:
     repeating-linear-gradient(
       to bottom,
-      rgba(255, 255, 255, 0.05) 0,
-      rgba(255, 255, 255, 0.05) 1px,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
       transparent 1px,
       transparent var(--grid-row-size)
     ),
     repeating-linear-gradient(
       to right,
-      rgba(255, 255, 255, 0.08) 0,
-      rgba(255, 255, 255, 0.08) 1px,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
+      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
       transparent 1px,
-      transparent var(--grid-column-size)
+      transparent var(--grid-row-size)
+    ),
+    radial-gradient(
+      circle at 1px 1px,
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 1px,
+      transparent 1.2px
     );
+  background-size:
+    auto,
+    auto,
+    var(--grid-column-size) calc(var(--grid-row-size) * 3);
   pointer-events: none;
 }
 

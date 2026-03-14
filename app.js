@@ -404,6 +404,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
+  function parseHexColor(value) {
+    const normalized = normalizeExportBackgroundHex(value, DEFAULT_EXPORT_BACKGROUND_HEX);
+    return {
+      red: Number.parseInt(normalized.slice(1, 3), 16),
+      green: Number.parseInt(normalized.slice(3, 5), 16),
+      blue: Number.parseInt(normalized.slice(5, 7), 16),
+    };
+  }
+
+  function getGridOverlayPalette(backgroundHex = state.exportBackgroundHex) {
+    const { red, green, blue } = parseHexColor(backgroundHex);
+    const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
+    const inkRgb = luminance > 0.58 ? '0, 0, 0' : '255, 255, 255';
+
+    return {
+      lineColor: `rgba(${inkRgb}, ${luminance > 0.58 ? 0.16 : 0.08})`,
+      dotColor: `rgba(${inkRgb}, ${luminance > 0.58 ? 0.3 : 0.34})`,
+    };
+  }
+
   function snapCropZoom(value) {
     return clamp(Math.round(value / CROP_ZOOM_STEP) * CROP_ZOOM_STEP, CROP_ZOOM_MIN, CROP_ZOOM_MAX);
   }
@@ -2608,6 +2628,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
       : `${logicalBoardHeight * state.zoom}px`;
     refs.board.style.setProperty('--board-radius', `${getRadiusPx()}px`);
     refs.board.style.setProperty('--board-backdrop-color', state.exportBackgroundHex);
+    const gridPalette = getGridOverlayPalette();
+    refs.board.style.setProperty('--grid-line-color', gridPalette.lineColor);
+    refs.board.style.setProperty('--grid-dot-color', gridPalette.dotColor);
     refs.stage.style.width = `${GRID_WIDTH}px`;
     refs.stage.style.height = `${logicalBoardHeight}px`;
     refs.stage.style.transform = state.isMobileMode
@@ -2615,6 +2638,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       : `scale(${state.zoom})`;
     refs.stage.style.setProperty('--board-radius', `${getRadiusPx()}px`);
     refs.stage.style.setProperty('--board-backdrop-color', state.exportBackgroundHex);
+    refs.stage.style.setProperty('--grid-line-color', gridPalette.lineColor);
+    refs.stage.style.setProperty('--grid-dot-color', gridPalette.dotColor);
     refs.stage.replaceChildren();
 
     const grid = document.createElement('div');
