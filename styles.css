@@ -547,7 +547,7 @@
       transparent var(--grid-row-size)
     ),
     radial-gradient(
-      circle at 0 0,
+      circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 3px,
       transparent 3.2px
@@ -559,7 +559,7 @@
   background-position:
     0 0,
     0 0,
-    0 0;
+    calc(var(--grid-column-size) / -2) calc((var(--grid-row-size) * 3) / -2);
   pointer-events: none;
 }
 
