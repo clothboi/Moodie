@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_EXPORT_BACKGROUND_HEX,
-  EXPORT_BORDER_PX,
   getExportRenderMetrics,
   normalizeExportBackgroundHex,
   paintExportBackground,
@@ -9,41 +8,44 @@ import {
 } from './exportUtils.js';
 
 describe('getExportRenderMetrics', () => {
-  it('keeps the selected longest edge inclusive of the 20px border for landscape exports', () => {
+  it('keeps the selected longest edge inclusive of a border derived from tile spacing for landscape exports', () => {
     expect(
       getExportRenderMetrics(
         { width: 1200, height: 600 },
         1024,
+        { borderSourcePx: 4 },
       ),
     ).toEqual({
       width: 1024,
-      height: 532,
-      contentWidth: 984,
-      contentHeight: 492,
-      scale: 0.82,
-      borderPx: EXPORT_BORDER_PX,
+      height: 515,
+      contentWidth: 1017,
+      contentHeight: 508,
+      scale: 0.847682119205298,
+      borderPx: 3.390728476821192,
+      borderSourcePx: 4,
       targetEdge: 1024,
-      contentTargetEdge: 984,
+      contentTargetEdge: 1017.2185430463577,
     });
   });
 
-  it('keeps the selected longest edge inclusive of the 20px border for portrait exports', () => {
-    const metrics = getExportRenderMetrics({ width: 600, height: 1200 }, 2048);
+  it('keeps the selected longest edge inclusive of the derived border for portrait exports', () => {
+    const metrics = getExportRenderMetrics({ width: 600, height: 1200 }, 2048, { borderSourcePx: 8 });
 
-    expect(metrics.width).toBe(1044);
+    expect(metrics.width).toBe(1038);
     expect(metrics.height).toBe(2048);
-    expect(metrics.contentWidth).toBe(1004);
-    expect(metrics.contentHeight).toBe(2008);
-    expect(metrics.scale).toBeCloseTo(1.6733333333);
+    expect(metrics.contentWidth).toBe(1012);
+    expect(metrics.contentHeight).toBe(2023);
+    expect(metrics.scale).toBeCloseTo(1.6858552631);
+    expect(metrics.borderPx).toBeCloseTo(13.4868421053);
   });
 
-  it('adds the 20px border to square exports without changing the final target edge', () => {
-    const metrics = getExportRenderMetrics({ width: 800, height: 800 }, 3072);
+  it('adds no border when tile spacing is zero', () => {
+    const metrics = getExportRenderMetrics({ width: 800, height: 800 }, 3072, { borderSourcePx: 0 });
 
     expect(metrics.width).toBe(3072);
     expect(metrics.height).toBe(3072);
-    expect(metrics.contentWidth).toBe(3032);
-    expect(metrics.contentHeight).toBe(3032);
+    expect(metrics.contentWidth).toBe(3072);
+    expect(metrics.contentHeight).toBe(3072);
   });
 });
 

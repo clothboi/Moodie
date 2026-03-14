@@ -1,4 +1,3 @@
-export const EXPORT_BORDER_PX = 20;
 export const DEFAULT_EXPORT_BACKGROUND_HEX = '#1B1D20';
 
 function clamp(value, min, max) {
@@ -68,8 +67,8 @@ export function getExportRenderMetrics(
   bounds,
   targetEdge,
   {
-    borderPx = EXPORT_BORDER_PX,
-    minTargetEdge = EXPORT_BORDER_PX * 2 + 1,
+    borderSourcePx = 0,
+    minTargetEdge = 1,
     maxTargetEdge = Number.POSITIVE_INFINITY,
   } = {},
 ) {
@@ -80,27 +79,30 @@ export function getExportRenderMetrics(
       contentWidth: 0,
       contentHeight: 0,
       scale: 1,
-      borderPx,
+      borderPx: 0,
+      borderSourcePx,
       targetEdge: 0,
       contentTargetEdge: 0,
     };
   }
 
+  const safeBorderSourcePx = Math.max(0, Number.isFinite(borderSourcePx) ? borderSourcePx : 0);
   const longestEdge = Math.max(bounds.width, bounds.height) || 1;
   const safeTargetEdge = clamp(Math.round(targetEdge || 0), minTargetEdge, maxTargetEdge);
-  const contentTargetEdge = Math.max(1, safeTargetEdge - borderPx * 2);
-  const scale = contentTargetEdge / longestEdge;
+  const scale = safeTargetEdge / Math.max(1, longestEdge + safeBorderSourcePx * 2);
   const contentWidth = Math.max(1, Math.round(bounds.width * scale));
   const contentHeight = Math.max(1, Math.round(bounds.height * scale));
+  const borderPx = safeBorderSourcePx * scale;
 
   return {
-    width: contentWidth + borderPx * 2,
-    height: contentHeight + borderPx * 2,
+    width: Math.max(1, Math.round((bounds.width + safeBorderSourcePx * 2) * scale)),
+    height: Math.max(1, Math.round((bounds.height + safeBorderSourcePx * 2) * scale)),
     contentWidth,
     contentHeight,
     scale,
     borderPx,
+    borderSourcePx: safeBorderSourcePx,
     targetEdge: safeTargetEdge,
-    contentTargetEdge,
+    contentTargetEdge: Math.max(1, safeTargetEdge - borderPx * 2),
   };
 }

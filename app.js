@@ -7,7 +7,6 @@ import {
 } from './mobileViewport.js';
 import {
   DEFAULT_EXPORT_BACKGROUND_HEX,
-  EXPORT_BORDER_PX,
   getExportRenderMetrics,
   isValidExportBackgroundHex,
   normalizeExportBackgroundHex,
@@ -73,6 +72,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const DEFAULT_LAYOUT = {
     gapPx: 4,
     radiusPx: 4,
+    exportBackgroundHex: DEFAULT_EXPORT_BACKGROUND_HEX,
   };
   const DEFAULT_CROP = {
     zoom: 1,
@@ -134,8 +134,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     isExportPanelOpen: false,
     exportTargetEdge: EXPORT_MAX_EDGE,
     exportIncludeBackground: true,
-    exportBackgroundHex: DEFAULT_EXPORT_BACKGROUND_HEX,
-    exportBackgroundHexDraft: DEFAULT_EXPORT_BACKGROUND_HEX,
+    exportBackgroundHex: persistedBoardState.layout.exportBackgroundHex,
+    exportBackgroundHexDraft: persistedBoardState.layout.exportBackgroundHex,
     isMobileMode: false,
     isMultiSelectMode: false,
     selectedItemIds: [],
@@ -397,6 +397,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return {
       gapPx: snapLayoutValue(layout?.gapPx ?? DEFAULT_LAYOUT.gapPx),
       radiusPx: snapLayoutValue(layout?.radiusPx ?? DEFAULT_LAYOUT.radiusPx),
+      exportBackgroundHex: normalizeExportBackgroundHex(
+        layout?.exportBackgroundHex ?? DEFAULT_LAYOUT.exportBackgroundHex,
+        DEFAULT_LAYOUT.exportBackgroundHex,
+      ),
     };
   }
 
@@ -1974,13 +1978,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   function setExportBackgroundHex(nextHex, { syncDraft = true, rerender = true } = {}) {
     state.exportBackgroundHex = normalizeExportBackgroundHex(nextHex, DEFAULT_EXPORT_BACKGROUND_HEX);
+    state.layout = {
+      ...state.layout,
+      exportBackgroundHex: state.exportBackgroundHex,
+    };
+    saveBoardState();
 
     if (syncDraft) {
       resetExportBackgroundHexDraft();
     }
 
     if (rerender) {
-      renderExportPanel();
+      renderHud();
     }
   }
 
@@ -1991,12 +2000,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     resetExportBackgroundHexDraft();
-    renderExportPanel();
+    renderHud();
   }
 
   function getExportOutputSize(bounds, targetEdge = state.exportTargetEdge) {
     return getExportRenderMetrics(bounds, targetEdge, {
-      borderPx: EXPORT_BORDER_PX,
+      borderSourcePx: getGapPx(),
       maxTargetEdge: EXPORT_MAX_EDGE,
     });
   }
@@ -2185,10 +2194,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportCurrentSize.textContent = bounds ? `${currentWidth} x ${currentHeight}px` : 'No images';
     refs.exportOutputSize.textContent = bounds ? `${output.width} x ${output.height}px PNG` : 'No export available';
     refs.exportPreviewFrame.dataset.transparent = String(!state.exportIncludeBackground);
-    refs.exportBackgroundColor.value = state.exportBackgroundHex;
-    refs.exportBackgroundColor.disabled = controlsDisabled || !state.exportIncludeBackground;
-    refs.exportBackgroundHex.value = state.exportBackgroundHexDraft;
-    refs.exportBackgroundHex.disabled = controlsDisabled || !state.exportIncludeBackground;
 
     refs.exportBackgroundModes.querySelectorAll('[data-export-background-mode]').forEach((button) => {
       const shouldIncludeBackground = button.dataset.exportBackgroundMode === 'filled';
@@ -2253,6 +2258,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
       control.value.textContent = `${value} px`;
       control.range.value = String(value);
+    }
+
+    if (refs.layoutBackgroundColor) {
+      refs.layoutBackgroundColor.value = state.exportBackgroundHex;
+    }
+
+    if (refs.layoutBackgroundHex) {
+      refs.layoutBackgroundHex.value = state.exportBackgroundHexDraft;
     }
   }
 
@@ -3635,6 +3648,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     state.items = [];
     state.layout = { ...DEFAULT_LAYOUT };
+    state.exportBackgroundHex = DEFAULT_LAYOUT.exportBackgroundHex;
+    state.exportBackgroundHexDraft = DEFAULT_LAYOUT.exportBackgroundHex;
     state.zoom = getDefaultZoom();
     state.isMultiSelectMode = false;
     state.viewportTransform = null;
@@ -3924,6 +3939,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
               </div>
             `,
           ).join('')}
+          <div class="board-layout-panel__row board-layout-panel__row--color">
+            <span class="board-layout-panel__label">Backdrop</span>
+            <input
+              type="color"
+              class="board-export-panel__color-picker"
+              data-role="layout-background-color"
+              value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+              aria-label="Choose export background colour"
+            />
+            <input
+              type="text"
+              class="board-export-panel__hex-input"
+              data-role="layout-background-hex"
+              value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+              maxlength="7"
+              spellcheck="false"
+              autocapitalize="characters"
+              aria-label="Export background HEX value"
+            />
+          </div>
         </div>
         <div class="board-export-panel" data-role="export-panel" hidden>
           <p class="board-export-panel__title">Export PNG</p>
@@ -3950,28 +3985,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
                 data-export-background-mode="transparent"
                 aria-pressed="false"
               >Transparent</button>
-            </div>
-          </div>
-          <div class="board-export-panel__meta">
-            <span class="board-export-panel__label">Background colour</span>
-            <div class="board-export-panel__color-controls">
-              <input
-                type="color"
-                class="board-export-panel__color-picker"
-                data-role="export-background-color"
-                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
-                aria-label="Choose export background colour"
-              />
-              <input
-                type="text"
-                class="board-export-panel__hex-input"
-                data-role="export-background-hex"
-                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
-                maxlength="7"
-                spellcheck="false"
-                autocapitalize="characters"
-                aria-label="Export background HEX value"
-              />
             </div>
           </div>
           <div class="board-export-panel__meta">
@@ -4028,8 +4041,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportPreviewMessage = getRoleRef('export-preview-message');
     refs.exportCurrentSize = getRoleRef('export-current-size');
     refs.exportBackgroundModes = getRoleRef('export-background-modes');
-    refs.exportBackgroundColor = getRoleRef('export-background-color');
-    refs.exportBackgroundHex = getRoleRef('export-background-hex');
+    refs.layoutBackgroundColor = getRoleRef('layout-background-color');
+    refs.layoutBackgroundHex = getRoleRef('layout-background-hex');
     refs.exportOutputSize = getRoleRef('export-output-size');
     refs.exportSizeOptions = getRoleRef('export-size-options');
     refs.exportCancel = getRoleRef('export-cancel');
@@ -4111,26 +4124,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
         renderExportPanel();
       });
     });
-    addManagedEventListener(refs.exportBackgroundColor, 'input', (event) => {
+    addManagedEventListener(refs.layoutBackgroundColor, 'input', (event) => {
       setExportBackgroundHex(event.currentTarget.value);
     });
-    addManagedEventListener(refs.exportBackgroundHex, 'input', (event) => {
+    addManagedEventListener(refs.layoutBackgroundHex, 'input', (event) => {
       state.exportBackgroundHexDraft = event.currentTarget.value.toUpperCase();
 
       if (isValidExportBackgroundHex(state.exportBackgroundHexDraft)) {
         setExportBackgroundHex(state.exportBackgroundHexDraft, { syncDraft: false, rerender: false });
       }
 
-      renderExportPanel();
+      renderHud();
     });
-    addManagedEventListener(refs.exportBackgroundHex, 'blur', () => {
+    addManagedEventListener(refs.layoutBackgroundHex, 'blur', () => {
       commitExportBackgroundHexDraft();
     });
-    addManagedEventListener(refs.exportBackgroundHex, 'keydown', (event) => {
+    addManagedEventListener(refs.layoutBackgroundHex, 'keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
         commitExportBackgroundHexDraft();
-        refs.exportBackgroundHex.blur();
+        refs.layoutBackgroundHex.blur();
       }
     });
     addManagedEventListener(refs.exportCancel, 'click', () => {
