@@ -5,6 +5,14 @@ import {
   getViewportFrameRect,
   isFrameNearViewportEdge,
 } from './mobileViewport.js';
+import {
+  DEFAULT_EXPORT_BACKGROUND_HEX,
+  EXPORT_BORDER_PX,
+  getExportRenderMetrics,
+  isValidExportBackgroundHex,
+  normalizeExportBackgroundHex,
+  paintExportBackground,
+} from './exportUtils.js';
 
 const DEFAULT_STORAGE_KEY = 'moodboard-grid.board';
 const DEFAULT_TITLE = 'Moodboard Grid';
@@ -114,6 +122,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const DEFAULT_VISIBLE_COLUMNS = 10;
   const GRID_WIDTH = GRID_SPEC.maxColumns * GRID_SPEC.columnPx;
   const persistedBoardState = loadBoardState();
+  const exportImageCache = new Map();
+  let exportPreviewRequestId = 0;
 
   const state = {
     items: persistedBoardState.items,
@@ -123,6 +133,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
     isHintsPanelOpen: false,
     isExportPanelOpen: false,
     exportTargetEdge: EXPORT_MAX_EDGE,
+    exportIncludeBackground: true,
+    exportBackgroundHex: DEFAULT_EXPORT_BACKGROUND_HEX,
+    exportBackgroundHexDraft: DEFAULT_EXPORT_BACKGROUND_HEX,
     isMobileMode: false,
     isMultiSelectMode: false,
     selectedItemIds: [],
@@ -1934,20 +1947,206 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderHud();
   }
 
-  function getExportOutputSize(bounds, targetEdge = state.exportTargetEdge) {
-    if (!bounds) {
-      return { width: 0, height: 0, scale: 1 };
+  function getExportSettings(overrides = {}) {
+    return {
+      targetEdge: state.exportTargetEdge,
+      includeBackground: state.exportIncludeBackground,
+      backgroundHex: state.exportBackgroundHex,
+      ...overrides,
+    };
+  }
+
+  function resetExportBackgroundHexDraft() {
+    state.exportBackgroundHexDraft = state.exportBackgroundHex;
+  }
+
+  function setExportBackgroundHex(nextHex, { syncDraft = true, rerender = true } = {}) {
+    state.exportBackgroundHex = normalizeExportBackgroundHex(nextHex, DEFAULT_EXPORT_BACKGROUND_HEX);
+
+    if (syncDraft) {
+      resetExportBackgroundHexDraft();
     }
 
-    const longestEdge = Math.max(bounds.width, bounds.height) || 1;
-    const safeTargetEdge = clamp(targetEdge, 1, EXPORT_MAX_EDGE);
-    const scale = safeTargetEdge / longestEdge;
+    if (rerender) {
+      renderExportPanel();
+    }
+  }
+
+  function commitExportBackgroundHexDraft() {
+    if (isValidExportBackgroundHex(state.exportBackgroundHexDraft)) {
+      setExportBackgroundHex(state.exportBackgroundHexDraft);
+      return;
+    }
+
+    resetExportBackgroundHexDraft();
+    renderExportPanel();
+  }
+
+  function getExportOutputSize(bounds, targetEdge = state.exportTargetEdge) {
+    return getExportRenderMetrics(bounds, targetEdge, {
+      borderPx: EXPORT_BORDER_PX,
+      maxTargetEdge: EXPORT_MAX_EDGE,
+    });
+  }
+
+  function setExportPreviewMessage(message = '') {
+    if (!refs.exportPreviewCanvas || !refs.exportPreviewMessage || !refs.exportPreviewFrame) {
+      return;
+    }
+
+    refs.exportPreviewFrame.dataset.empty = String(Boolean(message));
+    refs.exportPreviewCanvas.hidden = Boolean(message);
+    refs.exportPreviewMessage.hidden = !message;
+    refs.exportPreviewMessage.textContent = message;
+  }
+
+  function drawExportPreview(sourceCanvas) {
+    if (!refs.exportPreviewCanvas || !refs.exportPreviewFrame) {
+      return;
+    }
+
+    const availableWidth = Math.max(1, refs.exportPreviewFrame.clientWidth - 24);
+    const availableHeight = Math.max(1, refs.exportPreviewFrame.clientHeight - 24);
+    const scale = Math.min(availableWidth / sourceCanvas.width, availableHeight / sourceCanvas.height, 1);
+    const displayWidth = Math.max(1, Math.round(sourceCanvas.width * scale));
+    const displayHeight = Math.max(1, Math.round(sourceCanvas.height * scale));
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const previewContext = refs.exportPreviewCanvas.getContext('2d');
+
+    if (!previewContext) {
+      setExportPreviewMessage('Preview unavailable.');
+      return;
+    }
+
+    refs.exportPreviewCanvas.width = Math.max(1, Math.round(displayWidth * devicePixelRatio));
+    refs.exportPreviewCanvas.height = Math.max(1, Math.round(displayHeight * devicePixelRatio));
+    refs.exportPreviewCanvas.style.width = `${displayWidth}px`;
+    refs.exportPreviewCanvas.style.height = `${displayHeight}px`;
+    previewContext.setTransform(1, 0, 0, 1, 0, 0);
+    previewContext.clearRect(0, 0, refs.exportPreviewCanvas.width, refs.exportPreviewCanvas.height);
+    previewContext.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    previewContext.drawImage(sourceCanvas, 0, 0, displayWidth, displayHeight);
+    setExportPreviewMessage('');
+  }
+
+  async function createExportRenderSurface({
+    items = state.items,
+    bounds = getClusterBounds(items),
+    targetEdge = state.exportTargetEdge,
+    includeBackground = state.exportIncludeBackground,
+    backgroundHex = state.exportBackgroundHex,
+  } = {}) {
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      throw new Error('Nothing to export');
+    }
+
+    const metrics = getExportOutputSize(bounds, targetEdge);
+    const canvas = document.createElement('canvas');
+    canvas.width = metrics.width;
+    canvas.height = metrics.height;
+
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      throw new Error('PNG export is not available in this browser');
+    }
+
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    paintExportBackground(context, {
+      width: canvas.width,
+      height: canvas.height,
+      includeBackground,
+      backgroundHex,
+      fallbackHex: DEFAULT_EXPORT_BACKGROUND_HEX,
+    });
+    context.setTransform(metrics.scale, 0, 0, metrics.scale, metrics.borderPx, metrics.borderPx);
+
+    const loadedImages = await Promise.all(
+      items.map(async (item) => ({
+        item,
+        image: await loadImageForExport(item.src),
+      })),
+    );
+    const imageById = new Map(loadedImages.map(({ item, image }) => [item.id, image]));
+
+    for (const item of sortByVisualOrder(items)) {
+      const image = imageById.get(item.id);
+
+      if (!image) {
+        continue;
+      }
+
+      const frame = getTileFrame(item);
+      const exportFrame = {
+        left: frame.left - bounds.left,
+        top: frame.top - bounds.top,
+        width: frame.width,
+        height: frame.height,
+      };
+      const geometry = getCropGeometry(item, frame);
+
+      context.save();
+      buildRoundedRectPath(context, exportFrame.left, exportFrame.top, exportFrame.width, exportFrame.height, getRadiusPx());
+      context.clip();
+      context.drawImage(
+        image,
+        exportFrame.left + geometry.left,
+        exportFrame.top + geometry.top,
+        geometry.width,
+        geometry.height,
+      );
+      context.restore();
+    }
+
+    context.setTransform(1, 0, 0, 1, 0, 0);
 
     return {
-      width: Math.max(1, Math.round(bounds.width * scale)),
-      height: Math.max(1, Math.round(bounds.height * scale)),
-      scale,
+      canvas,
+      bounds,
+      metrics,
     };
+  }
+
+  async function renderExportPreview() {
+    if (!state.isExportPanelOpen || !refs.exportPreviewFrame || !refs.exportPreviewCanvas) {
+      return;
+    }
+
+    const bounds = getClusterBounds();
+
+    if (!bounds) {
+      exportPreviewRequestId += 1;
+      setExportPreviewMessage('No images to preview.');
+      return;
+    }
+
+    const requestId = ++exportPreviewRequestId;
+    refs.exportPreviewFrame.dataset.loading = 'true';
+
+    try {
+      const { canvas } = await createExportRenderSurface(getExportSettings({ bounds }));
+
+      if (requestId !== exportPreviewRequestId || !state.isExportPanelOpen) {
+        return;
+      }
+
+      drawExportPreview(canvas);
+    } catch (error) {
+      if (requestId !== exportPreviewRequestId || !state.isExportPanelOpen) {
+        return;
+      }
+
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Preview unavailable.';
+      setExportPreviewMessage(message);
+    } finally {
+      if (requestId === exportPreviewRequestId && refs.exportPreviewFrame) {
+        refs.exportPreviewFrame.dataset.loading = 'false';
+      }
+    }
   }
 
   function renderExportPanel() {
@@ -1956,25 +2155,47 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     refs.exportPanel.hidden = !state.isExportPanelOpen;
+
+    if (!state.isExportPanelOpen) {
+      exportPreviewRequestId += 1;
+      setExportPreviewMessage('');
+      return;
+    }
+
     positionFloatingPanel(refs.exportPanel);
 
     const bounds = getClusterBounds();
     const currentWidth = bounds ? Math.max(1, Math.round(bounds.width)) : 0;
     const currentHeight = bounds ? Math.max(1, Math.round(bounds.height)) : 0;
     const output = getExportOutputSize(bounds, state.exportTargetEdge);
+    const controlsDisabled = !bounds || state.exportState.isExporting;
 
     refs.exportCurrentSize.textContent = bounds ? `${currentWidth} x ${currentHeight}px` : 'No images';
     refs.exportOutputSize.textContent = bounds ? `${output.width} x ${output.height}px PNG` : 'No export available';
+    refs.exportPreviewFrame.dataset.transparent = String(!state.exportIncludeBackground);
+    refs.exportBackgroundColor.value = state.exportBackgroundHex;
+    refs.exportBackgroundColor.disabled = controlsDisabled || !state.exportIncludeBackground;
+    refs.exportBackgroundHex.value = state.exportBackgroundHexDraft;
+    refs.exportBackgroundHex.disabled = controlsDisabled || !state.exportIncludeBackground;
+
+    refs.exportBackgroundModes.querySelectorAll('[data-export-background-mode]').forEach((button) => {
+      const shouldIncludeBackground = button.dataset.exportBackgroundMode === 'filled';
+      const selected = shouldIncludeBackground === state.exportIncludeBackground;
+      button.classList.toggle('board-export-panel__size-button--active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+      button.disabled = controlsDisabled;
+    });
 
     for (const button of refs.exportSizeOptions.querySelectorAll('[data-export-edge]')) {
       const edge = Number(button.dataset.exportEdge);
       const selected = edge === state.exportTargetEdge;
       button.classList.toggle('board-export-panel__size-button--active', selected);
       button.setAttribute('aria-pressed', String(selected));
-      button.disabled = !bounds || state.exportState.isExporting;
+      button.disabled = controlsDisabled;
     }
 
-    refs.exportConfirm.disabled = !bounds || state.exportState.isExporting;
+    refs.exportConfirm.disabled = controlsDisabled;
+    renderExportPreview();
   }
 
   function renderStatus() {
@@ -2610,6 +2831,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
+    exportPreviewRequestId += 1;
+    resetExportBackgroundHexDraft();
     setFloatingPanels(false, false, false);
     renderHud();
   }
@@ -2632,6 +2855,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     const nextOpen = !state.isExportPanelOpen;
+    exportPreviewRequestId += 1;
+    resetExportBackgroundHexDraft();
     setFloatingPanels(false, false, nextOpen);
     renderHud();
   }
@@ -2679,16 +2904,35 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function loadImageForExport(src) {
-    return new Promise((resolve, reject) => {
+    const cachedImage = exportImageCache.get(src);
+
+    if (cachedImage) {
+      return cachedImage;
+    }
+
+    const imagePromise = new Promise((resolve, reject) => {
       const image = new Image();
       image.crossOrigin = 'anonymous';
       image.onload = () => resolve(image);
       image.onerror = () => reject(new Error('PNG export failed. A remote image may block browser export.'));
       image.src = src;
     });
+
+    exportImageCache.set(src, imagePromise);
+    imagePromise.catch(() => {
+      if (exportImageCache.get(src) === imagePromise) {
+        exportImageCache.delete(src);
+      }
+    });
+
+    return imagePromise;
   }
 
-  async function exportClusterAsPng(targetEdge = state.exportTargetEdge) {
+  async function exportClusterAsPng({
+    targetEdge = state.exportTargetEdge,
+    includeBackground = state.exportIncludeBackground,
+    backgroundHex = state.exportBackgroundHex,
+  } = {}) {
     if (!state.items.length || state.exportState.isExporting) {
       return;
     }
@@ -2702,56 +2946,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
         throw new Error('Nothing to export');
       }
 
-      const { width, height, scale } = getExportOutputSize(bounds, targetEdge);
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-
-      const context = canvas.getContext('2d');
-
-      if (!context) {
-        throw new Error('PNG export is not available in this browser');
-      }
-
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.scale(scale, scale);
-
-      const loadedImages = await Promise.all(
-        state.items.map(async (item) => ({
-          item,
-          image: await loadImageForExport(item.src),
-        })),
-      );
-      const imageById = new Map(loadedImages.map(({ item, image }) => [item.id, image]));
-
-      for (const item of sortByVisualOrder(state.items)) {
-        const image = imageById.get(item.id);
-
-        if (!image) {
-          continue;
-        }
-
-        const frame = getTileFrame(item);
-        const exportFrame = {
-          left: frame.left - bounds.left,
-          top: frame.top - bounds.top,
-          width: frame.width,
-          height: frame.height,
-        };
-        const geometry = getCropGeometry(item, frame);
-
-        context.save();
-        buildRoundedRectPath(context, exportFrame.left, exportFrame.top, exportFrame.width, exportFrame.height, getRadiusPx());
-        context.clip();
-        context.drawImage(
-          image,
-          exportFrame.left + geometry.left,
-          exportFrame.top + geometry.top,
-          geometry.width,
-          geometry.height,
-        );
-        context.restore();
-      }
+      const { canvas } = await createExportRenderSurface({
+        bounds,
+        targetEdge,
+        includeBackground,
+        backgroundHex,
+      });
 
       const blob = await new Promise((resolve, reject) => {
         canvas.toBlob((nextBlob) => {
@@ -3693,9 +3893,52 @@ function createMoodboardGrid(container, initialOptions = {}) {
         </div>
         <div class="board-export-panel" data-role="export-panel" hidden>
           <p class="board-export-panel__title">Export PNG</p>
+          <div class="board-export-panel__preview" data-role="export-preview-frame" data-transparent="false" data-empty="true" data-loading="false">
+            <canvas class="board-export-panel__preview-canvas" data-role="export-preview-canvas" hidden></canvas>
+            <span class="board-export-panel__preview-message" data-role="export-preview-message">No images to preview.</span>
+          </div>
           <div class="board-export-panel__meta">
             <span class="board-export-panel__label">Current cluster</span>
             <span class="board-export-panel__value" data-role="export-current-size"></span>
+          </div>
+          <div class="board-export-panel__meta">
+            <span class="board-export-panel__label">Background</span>
+            <div class="board-export-panel__sizes" data-role="export-background-modes">
+              <button
+                type="button"
+                class="board-export-panel__size-button"
+                data-export-background-mode="filled"
+                aria-pressed="true"
+              >Background</button>
+              <button
+                type="button"
+                class="board-export-panel__size-button"
+                data-export-background-mode="transparent"
+                aria-pressed="false"
+              >Transparent</button>
+            </div>
+          </div>
+          <div class="board-export-panel__meta">
+            <span class="board-export-panel__label">Background colour</span>
+            <div class="board-export-panel__color-controls">
+              <input
+                type="color"
+                class="board-export-panel__color-picker"
+                data-role="export-background-color"
+                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+                aria-label="Choose export background colour"
+              />
+              <input
+                type="text"
+                class="board-export-panel__hex-input"
+                data-role="export-background-hex"
+                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+                maxlength="7"
+                spellcheck="false"
+                autocapitalize="characters"
+                aria-label="Export background HEX value"
+              />
+            </div>
           </div>
           <div class="board-export-panel__meta">
             <span class="board-export-panel__label">Longest edge</span>
@@ -3746,7 +3989,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportPanel = getRoleRef('export-panel');
     refs.hintsPanel = getRoleRef('hints-panel');
     refs.hintsList = getRoleRef('hints-list');
+    refs.exportPreviewFrame = getRoleRef('export-preview-frame');
+    refs.exportPreviewCanvas = getRoleRef('export-preview-canvas');
+    refs.exportPreviewMessage = getRoleRef('export-preview-message');
     refs.exportCurrentSize = getRoleRef('export-current-size');
+    refs.exportBackgroundModes = getRoleRef('export-background-modes');
+    refs.exportBackgroundColor = getRoleRef('export-background-color');
+    refs.exportBackgroundHex = getRoleRef('export-background-hex');
     refs.exportOutputSize = getRoleRef('export-output-size');
     refs.exportSizeOptions = getRoleRef('export-size-options');
     refs.exportCancel = getRoleRef('export-cancel');
@@ -3822,14 +4071,42 @@ function createMoodboardGrid(container, initialOptions = {}) {
         renderExportPanel();
       });
     });
+    refs.exportBackgroundModes.querySelectorAll('[data-export-background-mode]').forEach((button) => {
+      addManagedEventListener(button, 'click', () => {
+        state.exportIncludeBackground = button.dataset.exportBackgroundMode === 'filled';
+        renderExportPanel();
+      });
+    });
+    addManagedEventListener(refs.exportBackgroundColor, 'input', (event) => {
+      setExportBackgroundHex(event.currentTarget.value);
+    });
+    addManagedEventListener(refs.exportBackgroundHex, 'input', (event) => {
+      state.exportBackgroundHexDraft = event.currentTarget.value.toUpperCase();
+
+      if (isValidExportBackgroundHex(state.exportBackgroundHexDraft)) {
+        setExportBackgroundHex(state.exportBackgroundHexDraft, { syncDraft: false, rerender: false });
+      }
+
+      renderExportPanel();
+    });
+    addManagedEventListener(refs.exportBackgroundHex, 'blur', () => {
+      commitExportBackgroundHexDraft();
+    });
+    addManagedEventListener(refs.exportBackgroundHex, 'keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        commitExportBackgroundHexDraft();
+        refs.exportBackgroundHex.blur();
+      }
+    });
     addManagedEventListener(refs.exportCancel, 'click', () => {
       closeFloatingPanels();
     });
     addManagedEventListener(refs.exportConfirm, 'click', async () => {
-      const targetEdge = state.exportTargetEdge;
+      const exportSettings = getExportSettings();
       setFloatingPanels(false, false, false);
       renderHud();
-      await exportClusterAsPng(targetEdge);
+      await exportClusterAsPng(exportSettings);
     });
     updateMobileMode();
     state.zoom = getDefaultZoom();

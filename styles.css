@@ -287,20 +287,77 @@
   color: #eef2f5;
 }
 
+.moodboard-grid .board-export-panel__preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 208px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at top, rgba(120, 137, 157, 0.12), transparent 55%),
+    linear-gradient(180deg, rgba(26, 30, 35, 0.96) 0%, rgba(17, 19, 23, 0.96) 100%);
+  overflow: hidden;
+}
+
+.moodboard-grid .board-export-panel__preview[data-transparent="true"] {
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.06) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.06) 75%),
+    linear-gradient(180deg, rgba(22, 26, 31, 0.94) 0%, rgba(14, 16, 20, 0.94) 100%);
+  background-size: 20px 20px, 20px 20px, auto;
+  background-position: 0 0, 10px 10px, 0 0;
+}
+
+.moodboard-grid .board-export-panel__preview[data-loading="true"]::after {
+  content: "Rendering preview...";
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(8, 10, 13, 0.72);
+  color: rgba(238, 242, 245, 0.76);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.moodboard-grid .board-export-panel__preview-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 18px 28px rgba(0, 0, 0, 0.24);
+}
+
+.moodboard-grid .board-export-panel__preview-message {
+  color: rgba(216, 224, 231, 0.76);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
 .moodboard-grid .board-export-panel__sizes {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
+.moodboard-grid .board-export-panel__color-controls {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 10px;
+}
+
 .moodboard-grid .board-export-panel__size-button,
-.moodboard-grid .board-export-panel__action {
+.moodboard-grid .board-export-panel__action,
+.moodboard-grid .board-export-panel__color-picker,
+.moodboard-grid .board-export-panel__hex-input {
   padding: 8px 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.04);
   color: #d8e0e7;
-  cursor: pointer;
   transition:
     background 160ms ease,
     border-color 160ms ease,
@@ -308,10 +365,45 @@
     transform 160ms ease;
 }
 
+.moodboard-grid .board-export-panel__size-button,
+.moodboard-grid .board-export-panel__action {
+  cursor: pointer;
+}
+
+.moodboard-grid .board-export-panel__color-picker,
+.moodboard-grid .board-export-panel__hex-input {
+  min-height: 42px;
+}
+
+.moodboard-grid .board-export-panel__color-picker {
+  padding: 4px;
+  cursor: pointer;
+}
+
+.moodboard-grid .board-export-panel__color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.moodboard-grid .board-export-panel__color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 999px;
+}
+
+.moodboard-grid .board-export-panel__hex-input {
+  width: 100%;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .moodboard-grid .board-export-panel__size-button:hover,
 .moodboard-grid .board-export-panel__size-button:focus-visible,
 .moodboard-grid .board-export-panel__action:hover,
-.moodboard-grid .board-export-panel__action:focus-visible {
+.moodboard-grid .board-export-panel__action:focus-visible,
+.moodboard-grid .board-export-panel__color-picker:hover,
+.moodboard-grid .board-export-panel__color-picker:focus-visible,
+.moodboard-grid .board-export-panel__hex-input:hover,
+.moodboard-grid .board-export-panel__hex-input:focus-visible {
   border-color: rgba(255, 255, 255, 0.22);
   background: rgba(255, 255, 255, 0.08);
   color: #eef2f5;
@@ -320,7 +412,9 @@
 }
 
 .moodboard-grid .board-export-panel__size-button:disabled,
-.moodboard-grid .board-export-panel__action:disabled {
+.moodboard-grid .board-export-panel__action:disabled,
+.moodboard-grid .board-export-panel__color-picker:disabled,
+.moodboard-grid .board-export-panel__hex-input:disabled {
   cursor: default;
   color: rgba(200, 208, 215, 0.42);
   border-color: rgba(255, 255, 255, 0.06);
@@ -843,6 +937,10 @@
   .moodboard-grid .board-hints-panel,
   .moodboard-grid .board-export-panel {
     width: calc(100% - var(--safe-area-left) - var(--safe-area-right) - 20px);
+  }
+
+  .moodboard-grid .board-export-panel__preview {
+    min-height: 172px;
   }
 
   .moodboard-grid .board-hud__bar {
