@@ -346,6 +346,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
+  function getMobileFocusBounds(focusBounds, logicalBoardHeight) {
+    const fallbackBounds = getFallbackClusterBounds(logicalBoardHeight);
+    const nextBounds = focusBounds ?? fallbackBounds;
+
+    return {
+      left: 0,
+      top: nextBounds.top,
+      width: Math.max(nextBounds.width, fallbackBounds.width),
+      height: Math.max(nextBounds.height, fallbackBounds.height),
+    };
+  }
+
   function buildMobileViewportState(focusBounds, logicalBoardHeight) {
     const hudHeight = refs.hud?.getBoundingClientRect().height ?? 0;
 
@@ -354,7 +366,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       viewportHeight: getViewportHeight(),
       hudHeight,
       safeAreaInsets: getSafeAreaInsets(),
-      focusBounds,
+      focusBounds: getMobileFocusBounds(focusBounds, logicalBoardHeight),
       fallbackBounds: getFallbackClusterBounds(logicalBoardHeight),
       minZoom: MOBILE_ZOOM_MIN,
       maxZoom: ZOOM_MAX,
@@ -2365,7 +2377,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
   }
 
-  function renderOverlayControls(selectedItem, frame) {
+  function renderOverlayControls(selectedItem, frame, previewResult) {
     if (!refs.cropAnchorLayer) {
       return;
     }
@@ -2406,7 +2418,29 @@ function createMoodboardGrid(container, initialOptions = {}) {
     if (state.isMobileMode && state.dragSession?.allowShiftStack) {
       const safeAreaInsets = getSafeAreaInsets();
       const buttonSize = 72;
+      const draggedItem = getItemById(state.items, state.dragSession.itemId);
+      const previewItem =
+        previewResult?.previewItem && previewResult.previewItem.id === state.dragSession.itemId
+          ? previewResult.previewItem
+          : draggedItem;
+      const thumbFrame = previewItem
+        ? getViewportFrameRect(getTileFrame(previewItem), viewportTransform)
+        : null;
       const thumbButton = document.createElement('button');
+      const thumbLeft = thumbFrame
+        ? clamp(
+            thumbFrame.left + thumbFrame.width / 2 - buttonSize / 2,
+            safeAreaInsets.left + 8,
+            getViewportWidth() - safeAreaInsets.right - buttonSize - 8,
+          )
+        : getViewportWidth() - safeAreaInsets.right - buttonSize - 18;
+      const thumbTop = thumbFrame
+        ? clamp(
+            thumbFrame.top + thumbFrame.height - buttonSize / 2,
+            safeAreaInsets.top + 8,
+            getViewportHeight() - safeAreaInsets.bottom - buttonSize - 8,
+          )
+        : getViewportHeight() - safeAreaInsets.bottom - buttonSize - 18;
 
       thumbButton.type = 'button';
       thumbButton.className = `board-mobile-shift-thumb${
@@ -2414,8 +2448,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       }`;
       thumbButton.textContent = 'Stack';
       thumbButton.setAttribute('aria-pressed', String(Boolean(state.dragSession.mobileShiftThumbActive)));
-      thumbButton.style.left = `${getViewportWidth() - safeAreaInsets.right - buttonSize - 18}px`;
-      thumbButton.style.top = `${getViewportHeight() - safeAreaInsets.bottom - buttonSize - 18}px`;
+      thumbButton.style.left = `${thumbLeft}px`;
+      thumbButton.style.top = `${thumbTop}px`;
       thumbButton.addEventListener('pointerdown', (event) => {
         if (!state.dragSession) {
           return;
@@ -2762,7 +2796,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderDragPreview(previewResult);
     renderResizeChoices(previewResult);
     renderMarqueeSelection();
-    renderOverlayControls(cropAnchorTarget?.item ?? null, cropAnchorTarget?.frame ?? null);
+    renderOverlayControls(cropAnchorTarget?.item ?? null, cropAnchorTarget?.frame ?? null, previewResult);
 
     if (previewItems.length === 0) {
       const empty = document.createElement('div');
