@@ -3036,10 +3036,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
           item.rowSpan !== currentItem.rowSpan);
       const isSelected = selectedIdSet.has(item.id);
       const isPrimarySelected = selectionAnchorId === item.id;
+      const shouldLiftTile =
+        isPrimarySelected &&
+        !hasMultiSelection &&
+        !state.dragSession &&
+        !state.resizeSession &&
+        !state.marqueeSession;
       const tile = document.createElement('div');
       tile.className = `board-tile${isSelected ? ' board-tile--selected' : ''}${
         isSelected && hasMultiSelection ? ' board-tile--multi-selected' : ''
-      }${isAffectedPreviewItem ? ' board-tile--affected' : ''}`;
+      }${isAffectedPreviewItem ? ' board-tile--affected' : ''}${shouldLiftTile ? ' board-tile--lifted' : ''}`;
       tile.tabIndex = 0;
       tile.setAttribute('role', 'button');
       tile.setAttribute('aria-label', 'Moodboard image tile');
@@ -3048,7 +3054,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       tile.style.top = `${frame.top}px`;
       tile.style.width = `${frame.width}px`;
       tile.style.height = `${frame.height}px`;
-      tile.style.zIndex = String(item.zIndex);
+      tile.style.zIndex = String(item.zIndex + (shouldLiftTile ? 1000 : 0));
 
       const image = document.createElement('img');
       image.className = 'board-media-image';

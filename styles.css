@@ -612,6 +612,24 @@
     0 18px 40px rgba(0, 0, 0, 0.26);
 }
 
+.moodboard-grid .board-tile--lifted {
+  outline-color: rgba(236, 241, 246, 0.32);
+  transform: translateY(-4px) scale(1.024);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 0 10px rgba(255, 255, 255, 0.02),
+    0 34px 80px rgba(0, 0, 0, 0.54),
+    0 12px 28px rgba(0, 0, 0, 0.32);
+}
+
+.moodboard-grid .board-tile--lifted:hover {
+  transform: translateY(-4px) scale(1.024);
+}
+
+.moodboard-grid .board-tile--lifted .board-tile__shadow {
+  background: linear-gradient(180deg, rgba(8, 10, 13, 0.02) 12%, rgba(0, 0, 0, 0.42) 100%);
+}
+
 .moodboard-grid .board-tile--multi-selected {
   outline-color: var(--accent-blue-border);
   box-shadow:
@@ -1721,6 +1739,24 @@
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.12),
     0 18px 40px rgba(0, 0, 0, 0.3);
+}
+
+.moodboard-grid .board-tile--lifted {
+  outline-color: rgba(236, 241, 246, 0.34);
+  transform: translateY(-4px) scale(1.024);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.18),
+    0 0 0 10px rgba(255, 255, 255, 0.02),
+    0 34px 84px rgba(0, 0, 0, 0.58),
+    0 14px 30px rgba(0, 0, 0, 0.34);
+}
+
+.moodboard-grid .board-tile--lifted:hover {
+  transform: translateY(-4px) scale(1.024);
+}
+
+.moodboard-grid .board-tile--lifted .board-tile__shadow {
+  background: linear-gradient(180deg, rgba(8, 10, 13, 0.02) 12%, rgba(0, 0, 0, 0.44) 100%);
 }
 
 .moodboard-grid .board-tile--multi-selected,
