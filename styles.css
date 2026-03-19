@@ -1006,6 +1006,10 @@
     0 10px 22px rgba(10, 24, 38, 0.28);
 }
 
+.moodboard-grid .board-resize-ladder__target--disabled {
+  opacity: 0.32;
+}
+
 .moodboard-grid .board-resize-thumb {
   pointer-events: none;
   border: 1px solid rgba(255, 255, 255, 0.18);
