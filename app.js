@@ -2384,7 +2384,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const selectionIds = getSelectionIds();
     const selectedCount = selectionIds.length;
     const shouldShow =
-      selectedCount > 0 &&
+      selectedCount > 1 &&
       !state.dragSession &&
       !state.resizeSession &&
       !state.marqueeSession;
@@ -2682,21 +2682,54 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     const viewportTransform = getCurrentViewportTransform();
     const zoom = viewportTransform.zoom;
+    const selectionIds = getSelectionIds();
+    const isSingleSelectedTile = Boolean(
+      selectedItem &&
+      selectionIds.length === 1 &&
+      !state.dragSession &&
+      !state.resizeSession &&
+      !state.marqueeSession,
+    );
+    const rootRect = refs.root?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    const selectedTileNode = selectedItem
+      ? refs.stage?.querySelector(`[data-item-id="${selectedItem.id}"]`)
+      : null;
+    const tileViewportFrame =
+      selectedTileNode && refs.root
+        ? (() => {
+            const tileRect = selectedTileNode.getBoundingClientRect();
+
+            return {
+              left: tileRect.left - rootRect.left,
+              top: tileRect.top - rootRect.top,
+              width: tileRect.width,
+              height: tileRect.height,
+            };
+          })()
+        : selectedItem && frame
+          ? getViewportFrameRect(frame, viewportTransform)
+          : null;
 
     if (selectedItem && !state.dragSession && !state.resizeSession && !state.marqueeSession) {
       const session = state.cropAnchorSession?.itemId === selectedItem.id ? state.cropAnchorSession : null;
       const anchorSize = clamp(30 * zoom, 16, 30);
       const anchorDotSize = clamp(anchorSize * 0.27, 5, 8);
       const anchorLogicalSize = anchorSize / zoom;
-      const anchorPoint = getViewportFrameRect(
-        {
-          left: frame.left + frame.width / 2,
-          top: frame.top + frame.height - 36 - anchorLogicalSize / 2,
-          width: 0,
-          height: 0,
-        },
-        viewportTransform,
-      );
+      const anchorPoint =
+        tileViewportFrame
+          ? {
+              left: tileViewportFrame.left + tileViewportFrame.width / 2,
+              top: tileViewportFrame.top + tileViewportFrame.height - 36 * zoom - anchorLogicalSize * zoom / 2,
+            }
+          : getViewportFrameRect(
+              {
+                left: frame.left + frame.width / 2,
+                top: frame.top + frame.height - 36 - anchorLogicalSize / 2,
+                width: 0,
+                height: 0,
+              },
+              viewportTransform,
+            );
       const anchorButton = document.createElement('button');
 
       anchorButton.type = 'button';
@@ -2709,6 +2742,106 @@ function createMoodboardGrid(container, initialOptions = {}) {
       anchorButton.style.top = `${anchorPoint.top + (session?.visualDy ?? 0) * zoom}px`;
       anchorButton.onpointerdown = (event) => startCropAnchorDrag(event, selectedItem.id);
       refs.cropAnchorLayer.appendChild(anchorButton);
+    }
+
+    if (isSingleSelectedTile && selectedItem && tileViewportFrame) {
+      const safeAreaInsets = getSafeAreaInsets();
+      const barGap = 10;
+      const horizontalInset = 8;
+      const maxBarWidth = Math.min(360, getViewportWidth() - safeAreaInsets.left - safeAreaInsets.right - 16);
+      const minActionBarWidth = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl ? 188 : 96;
+      const actionBarWidth = clamp(tileViewportFrame.width, minActionBarWidth, maxBarWidth);
+      const cropBarWidth = clamp(tileViewportFrame.width, 180, maxBarWidth);
+      const actionBarHeight = 46;
+      const cropBarHeight = 58;
+      const tileCenterX = tileViewportFrame.left + tileViewportFrame.width / 2;
+      const actionBarLeft = clamp(
+        tileCenterX - actionBarWidth / 2,
+        safeAreaInsets.left + horizontalInset,
+        getViewportWidth() - safeAreaInsets.right - horizontalInset - actionBarWidth,
+      );
+      const cropBarLeft = clamp(
+        tileCenterX - cropBarWidth / 2,
+        safeAreaInsets.left + horizontalInset,
+        getViewportWidth() - safeAreaInsets.right - horizontalInset - cropBarWidth,
+      );
+      const actionBarTop = Math.max(
+        safeAreaInsets.top + horizontalInset,
+        tileViewportFrame.top - actionBarHeight - barGap,
+      );
+      const cropBarTop = Math.min(
+        getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight,
+        tileViewportFrame.top + tileViewportFrame.height + barGap,
+      );
+      const actionBar = document.createElement('div');
+      actionBar.className = 'board-tile-selection-bar board-tile-selection-bar--top';
+      actionBar.style.left = `${actionBarLeft}px`;
+      actionBar.style.top = `${actionBarTop}px`;
+      actionBar.style.width = `${actionBarWidth}px`;
+
+      const actionGroup = document.createElement('div');
+      actionGroup.className = 'board-tile-selection-bar__actions';
+
+      if (selectedItem.sourceKind === 'web' && selectedItem.sourceUrl) {
+        const linkButton = document.createElement('button');
+        linkButton.type = 'button';
+        linkButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--primary board-tile-selection-bar__button';
+        linkButton.textContent = 'Open Link';
+        linkButton.addEventListener('click', () => {
+          openItemSource(selectedItem);
+        });
+        actionGroup.appendChild(linkButton);
+      }
+
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--danger board-tile-selection-bar__button';
+      deleteButton.textContent = 'Delete';
+      deleteButton.addEventListener('click', () => {
+        deleteSelection(selectedItem.id);
+      });
+      actionGroup.appendChild(deleteButton);
+      actionBar.appendChild(actionGroup);
+      refs.cropAnchorLayer.appendChild(actionBar);
+
+      const cropBar = document.createElement('div');
+      cropBar.className = 'board-tile-selection-bar board-tile-selection-bar--bottom';
+      cropBar.style.left = `${cropBarLeft}px`;
+      cropBar.style.top = `${cropBarTop}px`;
+      cropBar.style.width = `${cropBarWidth}px`;
+
+      const cropMeta = document.createElement('div');
+      cropMeta.className = 'board-tile-selection-bar__meta';
+
+      const cropLabel = document.createElement('span');
+      cropLabel.className = 'board-tile-selection-bar__label';
+      cropLabel.textContent = 'Crop zoom';
+
+      const cropValue = document.createElement('span');
+      cropValue.className = 'board-tile-selection-bar__value';
+      cropValue.textContent = formatCropZoomLabel(getItemCrop(selectedItem).zoom);
+
+      cropMeta.append(cropLabel, cropValue);
+
+      const cropSlider = document.createElement('input');
+      cropSlider.type = 'range';
+      cropSlider.className = 'board-selection-toolbar__slider board-tile-selection-bar__slider';
+      cropSlider.min = String(CROP_ZOOM_MIN);
+      cropSlider.max = String(CROP_ZOOM_MAX);
+      cropSlider.step = String(CROP_ZOOM_STEP);
+      cropSlider.value = String(getItemCrop(selectedItem).zoom);
+      cropSlider.setAttribute('aria-label', 'Crop zoom');
+      cropSlider.addEventListener('input', (event) => {
+        const nextZoom = Number(event.currentTarget.value);
+        cropValue.textContent = formatCropZoomLabel(nextZoom);
+        setItemCropZoom(selectedItem.id, nextZoom);
+      });
+      cropSlider.addEventListener('change', (event) => {
+        setItemCropZoom(selectedItem.id, Number(event.currentTarget.value), { save: true });
+      });
+
+      cropBar.append(cropMeta, cropSlider);
+      refs.cropAnchorLayer.appendChild(cropBar);
     }
 
     if (state.resizeSession?.overlay) {

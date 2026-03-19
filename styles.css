@@ -1553,6 +1553,67 @@
   gap: 6px;
 }
 
+.moodboard-grid .board-tile-selection-bar {
+  position: absolute;
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    var(--ui-surface-1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 20px 44px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+}
+
+.moodboard-grid .board-tile-selection-bar--top {
+  min-height: 46px;
+  align-items: center;
+}
+
+.moodboard-grid .board-tile-selection-bar--bottom {
+  min-height: 58px;
+}
+
+.moodboard-grid .board-tile-selection-bar__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.moodboard-grid .board-tile-selection-bar__button {
+  min-height: 34px;
+  padding-inline: 12px;
+  font-size: 0.76rem;
+}
+
+.moodboard-grid .board-tile-selection-bar__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.moodboard-grid .board-tile-selection-bar__label,
+.moodboard-grid .board-tile-selection-bar__value {
+  color: var(--ui-text-muted);
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.moodboard-grid .board-tile-selection-bar__value {
+  color: var(--ui-text-strong);
+  font-weight: 600;
+}
+
+.moodboard-grid .board-tile-selection-bar__slider {
+  width: 100%;
+}
+
 .moodboard-grid .board-selection-toolbar__eyebrow {
   margin: 0;
   color: #9eabb8;
