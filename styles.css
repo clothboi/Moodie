@@ -1262,9 +1262,16 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  width: min(460px, calc(100% - var(--safe-area-left) - var(--safe-area-right) - 28px));
   padding: 16px;
   border-radius: 20px;
+}
+
+.moodboard-grid .board-utility-panel {
+  width: min(560px, calc(100% - var(--safe-area-left) - var(--safe-area-right) - 28px));
+}
+
+.moodboard-grid .board-export-panel {
+  width: min(460px, calc(100% - var(--safe-area-left) - var(--safe-area-right) - 28px));
 }
 
 .moodboard-grid .board-utility-panel[hidden],
