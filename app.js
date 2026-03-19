@@ -1470,8 +1470,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         )
       : null;
     const thumbSize = state.isMobileMode ? 34 : 28;
-    const singleWidth = state.isMobileMode ? 24 : 22;
-    const doubleWidth = state.isMobileMode ? 40 : 36;
+    const targetSize = thumbSize;
     const rowPitch = state.isMobileMode ? 38 : 34;
     const columnGap = state.isMobileMode ? 14 : 12;
     const handleInset = state.isMobileMode ? 12 : 10;
@@ -1479,14 +1478,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const originTarget = overlay.targets.find((target) => target.id === overlay.originTargetId) ?? overlay.targets[0];
     const originX = originFrame.left + originFrame.width - handleInset - thumbSize / 2;
     const originY = originFrame.top + originFrame.height - handleInset - thumbSize / 2;
-    const columnShift = singleWidth / 2 + columnGap + doubleWidth / 2;
+    const columnShift = targetSize + columnGap;
     const targetFrames = overlay.targets.map((target) => {
-      const width = target.colSpan === 1 ? singleWidth : doubleWidth;
-      const height = clamp(
-        8 + target.rowSpan * (state.isMobileMode ? 5.4 : 4.1),
-        state.isMobileMode ? 18 : 16,
-        state.isMobileMode ? 40 : 32,
-      );
+      const width = targetSize;
+      const height = targetSize;
       const centerX = originX + (target.colIndex - originTarget.colIndex) * columnShift;
       const centerY = originY + (target.rowIndex - originTarget.rowIndex) * rowPitch;
 
