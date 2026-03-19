@@ -129,8 +129,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     items: persistedBoardState.items,
     layout: persistedBoardState.layout,
     zoom: 1,
-    isLayoutPanelOpen: false,
-    isHintsPanelOpen: false,
+    isUtilityPanelOpen: false,
+    activeUtilityTab: 'layout',
     isExportPanelOpen: false,
     exportTargetEdge: EXPORT_MAX_EDGE,
     exportIncludeBackground: true,
@@ -677,10 +677,67 @@ function createMoodboardGrid(container, initialOptions = {}) {
   function isFloatingUiTarget(target) {
     return (
       refs.hud?.contains(target) ||
-      refs.layoutPanel?.contains(target) ||
+      refs.utilityPanel?.contains(target) ||
       refs.exportPanel?.contains(target) ||
-      refs.hintsPanel?.contains(target)
+      refs.selectionToolbar?.contains(target) ||
+      refs.toast?.contains(target)
     );
+  }
+
+  function getToastState() {
+    if (state.exportState.isExporting || state.exportState.message) {
+      return {
+        message: state.exportState.message,
+        tone: state.exportState.tone,
+      };
+    }
+
+    if (state.isImporting) {
+      return {
+        message: 'Importing images...',
+        tone: 'working',
+      };
+    }
+
+    return {
+      message: '',
+      tone: 'idle',
+    };
+  }
+
+  function getModeSummary() {
+    if (state.isMobileMode) {
+      return isMobileMultiSelectActive() ? 'Touch canvas · multi-select on' : 'Touch canvas';
+    }
+
+    return 'Desktop canvas';
+  }
+
+  function getPrimarySelectedItem() {
+    const anchorId = getSelectionAnchorId();
+    return anchorId ? getItemById(state.items, anchorId) : null;
+  }
+
+  function deleteSelection(targetItemId = null) {
+    const selectionIds = getSelectionIds();
+    const deleteIds = selectionIds.length
+      ? selectionIds
+      : targetItemId
+        ? [targetItemId]
+        : [];
+
+    if (!deleteIds.length) {
+      return;
+    }
+
+    state.items = deleteIds.length > 1 ? deleteItems(deleteIds, state.items) : deleteItem(deleteIds[0], state.items);
+    clearSelection();
+    saveBoardState();
+    render();
+  }
+
+  function formatCropZoomLabel(zoom) {
+    return `${Math.round(zoom * 100)}%`;
   }
 
   function pointInRect(point, rect) {
@@ -1939,7 +1996,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     const shellRect = refs.shell.getBoundingClientRect();
     const boardRect = getStageRect();
-    const hudBottom = refs.hud?.getBoundingClientRect().bottom ?? shellRect.top;
+    const hudBottom = refs.hudContext?.getBoundingClientRect().bottom ?? shellRect.top;
     const clientX = shellRect.left + refs.shell.clientWidth / 2;
     const preferredClientY = shellRect.top + refs.shell.clientHeight / 2;
     const safeClientY = Math.min(
@@ -2238,19 +2295,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
   function renderStatus() {
     refs.title.textContent = settings.title.toUpperCase();
     refs.imageCount.textContent = `${state.items.length} image${state.items.length === 1 ? '' : 's'}`;
-    if (state.exportState.isExporting || state.exportState.message) {
-      refs.importStatus.textContent = state.exportState.message;
-      refs.importStatus.dataset.tone = state.exportState.tone;
+    refs.modeStatus.textContent = getModeSummary();
+    refs.modeStatus.dataset.mode = state.isMobileMode ? 'mobile' : 'desktop';
+  }
+
+  function renderToast() {
+    if (!refs.toast) {
       return;
     }
 
-    refs.importStatus.dataset.tone = 'idle';
-    if (state.isImporting) {
-      refs.importStatus.textContent = 'Importing images...';
+    const toastState = getToastState();
+    refs.toast.hidden = !toastState.message;
+
+    if (!toastState.message) {
+      refs.toast.textContent = '';
+      refs.toast.dataset.tone = 'idle';
       return;
     }
 
-    refs.importStatus.textContent = state.isMobileMode ? 'Fullscreen touch mode' : 'Drop files, links, or paste';
+    refs.toast.dataset.tone = toastState.tone;
+    refs.toast.textContent = toastState.message;
   }
 
   function renderHintsPanel() {
@@ -2267,8 +2331,127 @@ function createMoodboardGrid(container, initialOptions = {}) {
     );
   }
 
+  function renderSelectionToolbar() {
+    if (!refs.selectionToolbar) {
+      return;
+    }
+
+    refs.selectionToolbar.replaceChildren();
+    const selectionIds = getSelectionIds();
+    const selectedCount = selectionIds.length;
+    const shouldShow =
+      selectedCount > 0 &&
+      !state.dragSession &&
+      !state.resizeSession &&
+      !state.marqueeSession;
+
+    refs.selectionToolbar.hidden = !shouldShow;
+
+    if (!shouldShow) {
+      return;
+    }
+
+    const primaryItem = getPrimarySelectedItem();
+    const isSingleSelection = selectedCount === 1 && primaryItem;
+    const summary = document.createElement('div');
+    summary.className = 'board-selection-toolbar__summary';
+
+    const eyebrow = document.createElement('p');
+    eyebrow.className = 'board-selection-toolbar__eyebrow';
+    eyebrow.textContent = selectedCount === 1 ? 'Selection' : 'Multi-selection';
+
+    const title = document.createElement('p');
+    title.className = 'board-selection-toolbar__title';
+    title.textContent = selectedCount === 1 ? '1 image selected' : `${selectedCount} images selected`;
+
+    summary.append(eyebrow, title);
+
+    if (isSingleSelection) {
+      const detail = document.createElement('p');
+      detail.className = 'board-selection-toolbar__detail';
+      detail.textContent =
+        primaryItem.sourceKind === 'web' && primaryItem.sourceUrl
+          ? 'Resize from the tile edges, adjust crop below, or open the source link.'
+          : 'Resize from the tile edges and use the crop controls below to reframe the image.';
+      summary.append(detail);
+    } else {
+      const detail = document.createElement('p');
+      detail.className = 'board-selection-toolbar__detail';
+      detail.textContent = 'Drag any selected tile to move the whole selection together, or delete the current group.';
+      summary.append(detail);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'board-selection-toolbar__actions';
+
+    const clearButton = document.createElement('button');
+    clearButton.type = 'button';
+    clearButton.className = 'board-selection-toolbar__button';
+    clearButton.textContent = 'Clear';
+    clearButton.addEventListener('click', () => {
+      clearSelection();
+      renderBoard();
+    });
+    actions.appendChild(clearButton);
+
+    if (isSingleSelection && primaryItem.sourceKind === 'web' && primaryItem.sourceUrl) {
+      const linkButton = document.createElement('button');
+      linkButton.type = 'button';
+      linkButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--primary';
+      linkButton.textContent = 'Open Link';
+      linkButton.addEventListener('click', () => {
+        openItemSource(primaryItem);
+      });
+      actions.appendChild(linkButton);
+    }
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--danger';
+    deleteButton.textContent = selectedCount === 1 ? 'Delete' : `Delete ${selectedCount}`;
+    deleteButton.addEventListener('click', () => {
+      deleteSelection(primaryItem?.id ?? null);
+    });
+    actions.appendChild(deleteButton);
+
+    refs.selectionToolbar.append(summary, actions);
+
+    if (isSingleSelection) {
+      const cropRow = document.createElement('div');
+      cropRow.className = 'board-selection-toolbar__crop';
+
+      const cropLabel = document.createElement('span');
+      cropLabel.className = 'board-selection-toolbar__crop-label';
+      cropLabel.textContent = 'Crop zoom';
+
+      const cropValue = document.createElement('span');
+      cropValue.className = 'board-selection-toolbar__crop-value';
+      cropValue.textContent = formatCropZoomLabel(getItemCrop(primaryItem).zoom);
+
+      const cropSlider = document.createElement('input');
+      cropSlider.type = 'range';
+      cropSlider.className = 'board-selection-toolbar__slider';
+      cropSlider.min = String(CROP_ZOOM_MIN);
+      cropSlider.max = String(CROP_ZOOM_MAX);
+      cropSlider.step = String(CROP_ZOOM_STEP);
+      cropSlider.value = String(getItemCrop(primaryItem).zoom);
+      cropSlider.setAttribute('aria-label', 'Crop zoom');
+      cropSlider.addEventListener('input', (event) => {
+        const nextZoom = Number(event.currentTarget.value);
+        cropValue.textContent = formatCropZoomLabel(nextZoom);
+        setItemCropZoom(primaryItem.id, nextZoom);
+      });
+      cropSlider.addEventListener('change', (event) => {
+        setItemCropZoom(primaryItem.id, Number(event.currentTarget.value), { save: true });
+      });
+
+      cropRow.append(cropLabel, cropValue, cropSlider);
+      refs.selectionToolbar.append(cropRow);
+    }
+  }
+
   function syncLayoutControls() {
-    if (!refs.layoutPanel || !refs.layoutControls) {
+    if (!refs.utilityPanel || !refs.layoutControls) {
       return;
     }
 
@@ -2290,30 +2473,36 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function positionFloatingPanel(panel) {
-    if (!panel || panel.hidden || !refs.hud || !refs.root) {
+    if (!panel || panel.hidden || !refs.root) {
+      return;
+    }
+
+    if (state.isMobileMode) {
+      panel.style.left = '';
+      panel.style.top = '';
+      return;
+    }
+
+    if (!refs.hud || !refs.root) {
       return;
     }
 
     const hudRect = refs.hud.getBoundingClientRect();
     const rootRect = refs.root.getBoundingClientRect();
     panel.style.left = `${hudRect.left - rootRect.left}px`;
-    panel.style.top = `${hudRect.bottom - rootRect.top + 10}px`;
+    panel.style.top = `${hudRect.bottom - rootRect.top + 12}px`;
   }
 
   function renderHud() {
     renderStatus();
+    renderToast();
     syncLayoutControls();
     renderHintsPanel();
     refs.root?.classList.toggle('is-mobile-mode', state.isMobileMode);
 
-    if (refs.layoutToggle) {
-      refs.layoutToggle.setAttribute('aria-expanded', String(state.isLayoutPanelOpen));
-      refs.layoutToggle.classList.toggle('board-hud__button--active', state.isLayoutPanelOpen);
-    }
-
-    if (refs.hintsToggle) {
-      refs.hintsToggle.setAttribute('aria-expanded', String(state.isHintsPanelOpen));
-      refs.hintsToggle.classList.toggle('board-hud__button--active', state.isHintsPanelOpen);
+    if (refs.utilityToggle) {
+      refs.utilityToggle.setAttribute('aria-expanded', String(state.isUtilityPanelOpen));
+      refs.utilityToggle.classList.toggle('board-hud__button--active', state.isUtilityPanelOpen);
     }
 
     if (refs.exportPng) {
@@ -2329,14 +2518,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
       refs.multiSelectToggle.textContent = isMobileMultiSelectActive() ? 'Done selecting' : 'Multi-select';
     }
 
-    if (refs.layoutPanel) {
-      refs.layoutPanel.hidden = !state.isLayoutPanelOpen;
-      positionFloatingPanel(refs.layoutPanel);
-    }
-
-    if (refs.hintsPanel) {
-      refs.hintsPanel.hidden = !state.isHintsPanelOpen;
-      positionFloatingPanel(refs.hintsPanel);
+    if (refs.utilityPanel) {
+      refs.utilityPanel.hidden = !state.isUtilityPanelOpen;
+      refs.utilityTabLayout?.classList.toggle('board-utility-panel__tab--active', state.activeUtilityTab === 'layout');
+      refs.utilityTabLayout?.setAttribute('aria-pressed', String(state.activeUtilityTab === 'layout'));
+      refs.utilityTabHints?.classList.toggle('board-utility-panel__tab--active', state.activeUtilityTab === 'hints');
+      refs.utilityTabHints?.setAttribute('aria-pressed', String(state.activeUtilityTab === 'hints'));
+      if (refs.utilityLayoutSection) {
+        refs.utilityLayoutSection.hidden = state.activeUtilityTab !== 'layout';
+      }
+      if (refs.utilityHintsSection) {
+        refs.utilityHintsSection.hidden = state.activeUtilityTab !== 'hints';
+      }
+      positionFloatingPanel(refs.utilityPanel);
     }
 
     renderExportPanel();
@@ -2702,45 +2896,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
         const actions = document.createElement('span');
         actions.className = 'board-tile__actions';
         const selectedCount = selectedIdSet.size;
-        const deleteIds = selectedCount > 1 ? [...selectedIdSet] : [item.id];
-
-        const removeButton = document.createElement('button');
-        removeButton.type = 'button';
-        removeButton.className = 'board-tile__delete';
-        removeButton.textContent = selectedCount > 1 ? `Delete ${selectedCount}` : 'Delete';
-        removeButton.addEventListener('click', (event) => {
-          event.stopPropagation();
-          state.items = deleteIds.length > 1 ? deleteItems(deleteIds, state.items) : deleteItem(item.id, state.items);
-          clearSelection();
-          saveBoardState();
-          render();
-        });
-        removeButton.addEventListener('pointerdown', (event) => event.stopPropagation());
-
-        actions.appendChild(removeButton);
 
         if (selectedCount === 1) {
           cropAnchorTarget = { item, frame };
-          const linkButton = document.createElement('button');
-          const canOpenLink = item.sourceKind === 'web' && Boolean(item.sourceUrl);
-          linkButton.type = 'button';
-          linkButton.className = `board-tile__link${
-            canOpenLink ? ' board-tile__link--active' : ' board-tile__link--disabled'
-          }`;
-          linkButton.textContent = 'Link';
-          linkButton.disabled = !canOpenLink;
-          linkButton.setAttribute(
-            'aria-label',
-            canOpenLink ? 'Open source link in a new tab' : 'No source link available',
-          );
-          linkButton.addEventListener('pointerdown', (event) => {
-            event.stopPropagation();
-          });
-          linkButton.addEventListener('click', (event) => {
-            event.stopPropagation();
-            openItemSource(item);
-          });
-
           const leftHandle = document.createElement('button');
           leftHandle.type = 'button';
           leftHandle.className = 'board-tile__handle board-tile__handle--left';
@@ -2753,30 +2911,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
           rightHandle.setAttribute('aria-label', 'Resize from right edge');
           rightHandle.addEventListener('pointerdown', (event) => startResize(event, item, 'right'));
 
-          const cropSlider = document.createElement('input');
-          cropSlider.type = 'range';
-          cropSlider.className = 'board-tile__crop-slider';
-          cropSlider.min = String(CROP_ZOOM_MIN);
-          cropSlider.max = String(CROP_ZOOM_MAX);
-          cropSlider.step = String(CROP_ZOOM_STEP);
-          cropSlider.value = String(getItemCrop(item).zoom);
-          cropSlider.setAttribute('aria-label', 'Crop zoom');
-          cropSlider.addEventListener('pointerdown', (event) => {
-            event.stopPropagation();
-          });
-          cropSlider.addEventListener('input', (event) => {
-            event.stopPropagation();
-            setItemCropZoom(item.id, Number(event.currentTarget.value));
-          });
-          cropSlider.addEventListener('change', (event) => {
-            event.stopPropagation();
-            setItemCropZoom(item.id, Number(event.currentTarget.value), { save: true });
-          });
-
           actions.appendChild(leftHandle);
           actions.appendChild(rightHandle);
-          actions.appendChild(linkButton);
-          actions.appendChild(cropSlider);
         }
 
         tile.appendChild(actions);
@@ -2837,11 +2973,29 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderResizeChoices(previewResult);
     renderMarqueeSelection();
     renderOverlayControls(cropAnchorTarget?.item ?? null, cropAnchorTarget?.frame ?? null, previewResult);
+    renderSelectionToolbar();
 
     if (previewItems.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'board-empty-state';
-      empty.innerHTML = '<p>Drop images anywhere on the grid.</p><p>Paste screenshots or reference images with Ctrl+V.</p>';
+      empty.innerHTML = `
+        <div class="board-empty-state__card">
+          <p class="board-empty-state__eyebrow">Start the board</p>
+          <h2 class="board-empty-state__title">Import images into the snapping grid.</h2>
+          <p class="board-empty-state__copy">Drop files, paste screenshots, or import references to build a structured moodboard that stays aligned as it grows.</p>
+          <div class="board-empty-state__actions">
+            <button type="button" class="board-empty-state__button">Import images</button>
+          </div>
+          <div class="board-empty-state__hints">
+            <span class="board-empty-state__hint">Drop files or links</span>
+            <span class="board-empty-state__hint">Paste from clipboard</span>
+            <span class="board-empty-state__hint">Tiles snap into rhythm</span>
+          </div>
+        </div>
+      `;
+      empty.querySelector('.board-empty-state__button')?.addEventListener('click', () => {
+        openImportPicker();
+      });
       refs.stage.appendChild(empty);
     }
   }
@@ -2891,12 +3045,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function hasOpenFloatingPanel() {
-    return state.isLayoutPanelOpen || state.isHintsPanelOpen || state.isExportPanelOpen;
+    return state.isUtilityPanelOpen || state.isExportPanelOpen;
   }
 
-  function setFloatingPanels(layoutOpen, hintsOpen, exportOpen) {
-    state.isLayoutPanelOpen = layoutOpen;
-    state.isHintsPanelOpen = hintsOpen;
+  function setFloatingPanels(utilityOpen, exportOpen) {
+    state.isUtilityPanelOpen = utilityOpen;
     state.isExportPanelOpen = exportOpen;
   }
 
@@ -2907,19 +3060,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     exportPreviewRequestId += 1;
     resetExportBackgroundHexDraft();
-    setFloatingPanels(false, false, false);
+    setFloatingPanels(false, false);
     renderHud();
   }
 
-  function toggleLayoutPanel() {
-    const nextOpen = !state.isLayoutPanelOpen;
-    setFloatingPanels(nextOpen, false, false);
+  function toggleUtilityPanel() {
+    const nextOpen = !state.isUtilityPanelOpen;
+    setFloatingPanels(nextOpen, false);
     renderHud();
   }
 
-  function toggleHintsPanel() {
-    const nextOpen = !state.isHintsPanelOpen;
-    setFloatingPanels(false, nextOpen, false);
+  function openUtilityTab(tab) {
+    state.activeUtilityTab = tab;
+    setFloatingPanels(true, false);
     renderHud();
   }
 
@@ -2931,7 +3084,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const nextOpen = !state.isExportPanelOpen;
     exportPreviewRequestId += 1;
     resetExportBackgroundHexDraft();
-    setFloatingPanels(false, false, nextOpen);
+    setFloatingPanels(false, nextOpen);
     renderHud();
   }
 
@@ -3682,7 +3835,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     state.viewportTransform = null;
     state.mobileZoomOutSteps = 0;
     state.isMobileEdgeZoomLocked = false;
-    setFloatingPanels(false, false, false);
+    setFloatingPanels(false, false);
     state.exportTargetEdge = EXPORT_MAX_EDGE;
     clearSelection();
     state.dragSession = null;
@@ -3906,15 +4059,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
           </div>
         </div>
         <div class="board-hud" data-role="hud">
-          <div class="board-hud__bar">
-            <p class="board-hud__title" data-role="title"></p>
-            <span class="board-hud__status" data-role="import-status"></span>
-            <span class="board-hud__count" data-role="image-count"></span>
+          <div class="board-hud__context" data-role="hud-context">
+            <div class="board-hud__context-row">
+              <p class="board-hud__title" data-role="title"></p>
+              <span class="board-hud__mode" data-role="mode-status"></span>
+            </div>
+            <div class="board-hud__meta">
+              <span class="board-hud__count" data-role="image-count"></span>
+              <span class="board-hud__summary">Snap images into a live editorial canvas.</span>
+            </div>
           </div>
-          <div class="board-hud__rule" aria-hidden="true"></div>
-          <div class="board-hud__actions">
-            <button type="button" class="board-hud__button" data-role="new-project">Start New Project</button>
-            <button type="button" class="board-hud__button" data-role="import-images">Import</button>
+          <div class="board-hud__actions" data-role="hud-actions">
+            <button type="button" class="board-hud__button board-hud__button--primary" data-role="import-images">Import</button>
             <input type="file" data-role="import-input" accept="image/*" multiple hidden />
             <button
               type="button"
@@ -3932,71 +4088,93 @@ function createMoodboardGrid(container, initialOptions = {}) {
             >Export PNG</button>
             <button
               type="button"
-              class="board-hud__button board-hud__button--layout"
-              data-role="layout-toggle"
+              class="board-hud__button"
+              data-role="utility-toggle"
               aria-haspopup="dialog"
               aria-expanded="false"
-            >Edit Layout</button>
-            <button
-              type="button"
-              class="board-hud__button board-hud__button--layout"
-              data-role="hints-toggle"
-              aria-haspopup="dialog"
-              aria-expanded="false"
-            >Hints</button>
+            >Utilities</button>
           </div>
         </div>
-        <div class="board-layout-panel" data-role="layout-panel" hidden>
-          <p class="board-layout-panel__title">Edit Layout</p>
-          ${LAYOUT_CONTROL_CONFIG.map(
-            ({ role, label, ariaLabel }) => `
-              <div class="board-layout-panel__row">
-                <span class="board-layout-panel__label">${label}</span>
-                <button type="button" class="board-layout-panel__stepper" data-role="${role}-decrease" aria-label="Decrease ${ariaLabel}">-</button>
-                <input
-                  type="range"
-                  class="board-layout-panel__slider"
-                  data-role="${role}-range"
-                  min="${LAYOUT_MIN_PX}"
-                  max="${LAYOUT_MAX_PX}"
-                  step="${LAYOUT_STEP_PX}"
-                />
-                <button type="button" class="board-layout-panel__stepper" data-role="${role}-increase" aria-label="Increase ${ariaLabel}">+</button>
-                <span class="board-layout-panel__value" data-role="${role}-value"></span>
-              </div>
-            `,
-          ).join('')}
-          <div class="board-layout-panel__row board-layout-panel__row--color">
-            <span class="board-layout-panel__label">Backdrop</span>
-            <input
-              type="color"
-              class="board-export-panel__color-picker board-layout-panel__color-picker"
-              data-role="layout-background-color"
-              value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
-              aria-label="Choose export background colour"
-            />
-            <div class="board-layout-panel__backdrop-controls">
-              <input
-                type="text"
-                class="board-export-panel__hex-input"
-                data-role="layout-background-hex"
-                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
-                maxlength="7"
-                spellcheck="false"
-                autocapitalize="characters"
-                aria-label="Export background HEX value"
-              />
-              <button
-                type="button"
-                class="board-layout-panel__reset"
-                data-role="layout-background-reset"
-                aria-label="Reset backdrop colour"
-              >Reset</button>
+        <div class="board-utility-panel" data-role="utility-panel" hidden>
+          <div class="board-panel__header">
+            <div>
+              <p class="board-panel__eyebrow">Board tools</p>
+              <p class="board-panel__title">Layout and guidance</p>
             </div>
+            <button type="button" class="board-panel__dismiss" data-role="utility-close">Done</button>
+          </div>
+          <div class="board-utility-panel__tabs">
+            <button type="button" class="board-utility-panel__tab" data-role="utility-tab-layout" aria-pressed="true">Layout</button>
+            <button type="button" class="board-utility-panel__tab" data-role="utility-tab-hints" aria-pressed="false">Tips</button>
+          </div>
+          <div class="board-utility-panel__section" data-role="utility-layout-section">
+            <p class="board-utility-panel__copy">Adjust the board rhythm and export backdrop while keeping the snapping behaviour unchanged.</p>
+            ${LAYOUT_CONTROL_CONFIG.map(
+              ({ role, label, ariaLabel }) => `
+                <div class="board-layout-panel__row">
+                  <span class="board-layout-panel__label">${label}</span>
+                  <button type="button" class="board-layout-panel__stepper" data-role="${role}-decrease" aria-label="Decrease ${ariaLabel}">-</button>
+                  <input
+                    type="range"
+                    class="board-layout-panel__slider"
+                    data-role="${role}-range"
+                    min="${LAYOUT_MIN_PX}"
+                    max="${LAYOUT_MAX_PX}"
+                    step="${LAYOUT_STEP_PX}"
+                  />
+                  <button type="button" class="board-layout-panel__stepper" data-role="${role}-increase" aria-label="Increase ${ariaLabel}">+</button>
+                  <span class="board-layout-panel__value" data-role="${role}-value"></span>
+                </div>
+              `,
+            ).join('')}
+            <div class="board-layout-panel__row board-layout-panel__row--color">
+              <span class="board-layout-panel__label">Backdrop</span>
+              <input
+                type="color"
+                class="board-export-panel__color-picker board-layout-panel__color-picker"
+                data-role="layout-background-color"
+                value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+                aria-label="Choose export background colour"
+              />
+              <div class="board-layout-panel__backdrop-controls">
+                <input
+                  type="text"
+                  class="board-export-panel__hex-input"
+                  data-role="layout-background-hex"
+                  value="${DEFAULT_EXPORT_BACKGROUND_HEX}"
+                  maxlength="7"
+                  spellcheck="false"
+                  autocapitalize="characters"
+                  aria-label="Export background HEX value"
+                />
+                <button
+                  type="button"
+                  class="board-layout-panel__reset"
+                  data-role="layout-background-reset"
+                  aria-label="Reset backdrop colour"
+                >Reset</button>
+              </div>
+            </div>
+            <div class="board-utility-panel__danger">
+              <div>
+                <p class="board-utility-panel__danger-title">Start new project</p>
+                <p class="board-utility-panel__danger-copy">Clear the current board and restore the default layout settings.</p>
+              </div>
+              <button type="button" class="board-hud__button board-hud__button--danger" data-role="new-project">Start New Project</button>
+            </div>
+          </div>
+          <div class="board-utility-panel__section" data-role="utility-hints-section" hidden>
+            <p class="board-utility-panel__copy">Keep the board surface clean and use these shortcuts when you need finer control.</p>
+            <ul class="board-hints-panel__list" data-role="hints-list"></ul>
           </div>
         </div>
         <div class="board-export-panel" data-role="export-panel" hidden>
-          <p class="board-export-panel__title">Export PNG</p>
+          <div class="board-panel__header">
+            <div>
+              <p class="board-panel__eyebrow">Export</p>
+              <p class="board-panel__title">PNG output</p>
+            </div>
+          </div>
           <div class="board-export-panel__preview" data-role="export-preview-frame" data-transparent="false" data-empty="true" data-loading="false">
             <canvas class="board-export-panel__preview-canvas" data-role="export-preview-canvas" hidden></canvas>
             <span class="board-export-panel__preview-message" data-role="export-preview-message">No images to preview.</span>
@@ -4045,10 +4223,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
             <button type="button" class="board-export-panel__action board-export-panel__action--primary" data-role="export-confirm">Export PNG</button>
           </div>
         </div>
-        <div class="board-hints-panel" data-role="hints-panel" hidden>
-          <p class="board-hints-panel__title">Hints</p>
-          <ul class="board-hints-panel__list" data-role="hints-list"></ul>
-        </div>
+        <div class="board-selection-toolbar" data-role="selection-toolbar" hidden></div>
+        <div class="board-toast" data-role="toast" hidden></div>
         </main>
       </div>
     `;
@@ -4059,17 +4235,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     refs.title = getRoleRef('title');
     refs.imageCount = getRoleRef('image-count');
-    refs.importStatus = getRoleRef('import-status');
+    refs.modeStatus = getRoleRef('mode-status');
     refs.newProject = getRoleRef('new-project');
     refs.importImages = getRoleRef('import-images');
     refs.importInput = getRoleRef('import-input');
     refs.multiSelectToggle = getRoleRef('multi-select-toggle');
     refs.exportPng = getRoleRef('export-png');
-    refs.layoutToggle = getRoleRef('layout-toggle');
-    refs.hintsToggle = getRoleRef('hints-toggle');
-    refs.layoutPanel = getRoleRef('layout-panel');
+    refs.utilityToggle = getRoleRef('utility-toggle');
+    refs.utilityPanel = getRoleRef('utility-panel');
+    refs.utilityClose = getRoleRef('utility-close');
+    refs.utilityTabLayout = getRoleRef('utility-tab-layout');
+    refs.utilityTabHints = getRoleRef('utility-tab-hints');
+    refs.utilityLayoutSection = getRoleRef('utility-layout-section');
+    refs.utilityHintsSection = getRoleRef('utility-hints-section');
     refs.exportPanel = getRoleRef('export-panel');
-    refs.hintsPanel = getRoleRef('hints-panel');
     refs.hintsList = getRoleRef('hints-list');
     refs.exportPreviewFrame = getRoleRef('export-preview-frame');
     refs.exportPreviewCanvas = getRoleRef('export-preview-canvas');
@@ -4099,6 +4278,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.stage = refs.root.querySelector('[data-role="stage"]');
     refs.cropAnchorLayer = refs.root.querySelector('[data-role="overlay-layer"]');
     refs.hud = refs.root.querySelector('[data-role="hud"]');
+    refs.hudContext = getRoleRef('hud-context');
+    refs.hudActions = getRoleRef('hud-actions');
+    refs.selectionToolbar = getRoleRef('selection-toolbar');
+    refs.toast = getRoleRef('toast');
 
     if (activeWidgetId === null) {
       setActiveWidget();
@@ -4129,11 +4312,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
       event.currentTarget.value = '';
     });
     addManagedEventListener(refs.exportPng, 'click', toggleExportPanel);
-    addManagedEventListener(refs.layoutToggle, 'click', () => {
-      toggleLayoutPanel();
+    addManagedEventListener(refs.utilityToggle, 'click', toggleUtilityPanel);
+    addManagedEventListener(refs.utilityClose, 'click', closeFloatingPanels);
+    addManagedEventListener(refs.utilityTabLayout, 'click', () => {
+      openUtilityTab('layout');
     });
-    addManagedEventListener(refs.hintsToggle, 'click', () => {
-      toggleHintsPanel();
+    addManagedEventListener(refs.utilityTabHints, 'click', () => {
+      openUtilityTab('hints');
     });
     for (const { key } of LAYOUT_CONTROL_CONFIG) {
       const control = refs.layoutControls[key];
@@ -4190,7 +4375,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     });
     addManagedEventListener(refs.exportConfirm, 'click', async () => {
       const exportSettings = getExportSettings();
-      setFloatingPanels(false, false, false);
+      setFloatingPanels(false, false);
       renderHud();
       await exportClusterAsPng(exportSettings);
     });
