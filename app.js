@@ -1416,30 +1416,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return getResizeTargetId(originItem.colSpan, originVariant?.slot ?? 'base');
   }
 
-  function orderResizeTargetsForDisplay(targets, currentTargetId = null) {
-    const sortedTargets = [...targets].sort((left, right) => left.rowSpan - right.rowSpan);
-
-    if (!currentTargetId || sortedTargets.length <= 1) {
-      return sortedTargets;
-    }
-
-    const currentTarget = sortedTargets.find((target) => target.id === currentTargetId);
-
-    if (!currentTarget) {
-      return sortedTargets;
-    }
-
-    const remainingTargets = sortedTargets
-      .filter((target) => target.id !== currentTarget.id)
-      .sort(
-        (left, right) =>
-          Math.abs(left.rowSpan - currentTarget.rowSpan) - Math.abs(right.rowSpan - currentTarget.rowSpan) ||
-          left.rowSpan - right.rowSpan,
-      );
-
-    return [remainingTargets[0] ?? currentTarget, currentTarget, remainingTargets[1] ?? remainingTargets[0] ?? currentTarget];
-  }
-
   function getResizeTargetId(colSpan, slot) {
     return `resize-${colSpan}-${slot}`;
   }
@@ -1512,21 +1488,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const columnGap = (state.isMobileMode ? 14 : 12) * zoom;
     const handleInset = (state.isMobileMode ? 12 : 10) * zoom;
     const haloPadding = (state.isMobileMode ? 12 : 10) * zoom;
-    const primaryTargets = overlay.targets.filter((target) => target.colSpan === resizeSession.originItem.colSpan);
-    const secondaryTargets = overlay.targets.filter((target) => target.colSpan !== resizeSession.originItem.colSpan);
-    const primaryDisplayOrder = orderResizeTargetsForDisplay(primaryTargets, overlay.originTargetId);
-    const secondaryDisplayOrder = orderResizeTargetsForDisplay(secondaryTargets);
     const originX = originFrame.left + originFrame.width - handleInset - thumbSize / 2;
     const originY = originFrame.top + originFrame.height - handleInset - thumbSize / 2;
     const columnShift = targetSize + columnGap;
     const targetFrames = overlay.targets.map((target) => {
       const width = targetSize;
       const height = targetSize;
-      const primaryIndex = primaryDisplayOrder.findIndex((candidate) => candidate.id === target.id);
-      const secondaryIndex = secondaryDisplayOrder.findIndex((candidate) => candidate.id === target.id);
-      const isPrimaryColumn = primaryIndex !== -1;
-      const displayColIndex = isPrimaryColumn ? 0 : 1;
-      const displayRowIndex = isPrimaryColumn ? primaryIndex : Math.max(0, secondaryIndex);
+      const displayColIndex = target.colSpan === 1 ? 0 : 1;
+      const displayRowIndex = target.rowIndex;
       const centerX = originX + displayColIndex * columnShift;
       const centerY = originY + (displayRowIndex - 1) * rowPitch;
 
