@@ -1319,6 +1319,10 @@
   gap: 14px;
 }
 
+.moodboard-grid .board-utility-panel__section[hidden] {
+  display: none;
+}
+
 .moodboard-grid .board-utility-panel__copy,
 .moodboard-grid .board-utility-panel__danger-copy,
 .moodboard-grid .board-selection-toolbar__detail {
