@@ -2574,6 +2574,17 @@ function createMoodboardGrid(container, initialOptions = {}) {
         const safeAreaInsets = getSafeAreaInsets();
         const overlay = state.resizeSession.overlay;
         const originFrame = getViewportFrameRect(getTileFrame(state.resizeSession.originItem), viewportTransform);
+        const pointerPoint = state.resizeSession.pointerBoard
+          ? getViewportFrameRect(
+              {
+                left: state.resizeSession.pointerBoard.x,
+                top: state.resizeSession.pointerBoard.y,
+                width: 0,
+                height: 0,
+              },
+              viewportTransform,
+            )
+          : null;
         const thumbSize = state.isMobileMode ? 34 : 28;
         const singleWidth = state.isMobileMode ? 24 : 22;
         const doubleWidth = state.isMobileMode ? 40 : 36;
@@ -2642,6 +2653,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
           const shiftedActiveTarget = shiftedTargets.find((target) => target.id === overlay.activeTargetId) ?? shiftedTargets[0];
           const originX = anchorCenterX + shiftX;
           const originY = anchorCenterY + shiftY;
+          const pointerX = pointerPoint ? pointerPoint.left : originX;
+          const pointerY = pointerPoint ? pointerPoint.top : originY;
 
           minLeft = Math.min(originX, ...shiftedTargets.map((target) => target.left));
           minTop = Math.min(originY - thumbSize / 2, ...shiftedTargets.map((target) => target.top));
@@ -2662,6 +2675,25 @@ function createMoodboardGrid(container, initialOptions = {}) {
           ladder.style.top = `${ladderTop}px`;
           ladder.style.width = `${maxRight - minLeft + haloPadding * 2}px`;
           ladder.style.height = `${maxBottom - minTop + haloPadding * 2}px`;
+
+          const snapInset = state.isMobileMode ? 12 : 10;
+          const isPointerOverActiveTarget =
+            pointerX >= shiftedActiveTarget.left - snapInset &&
+            pointerX <= shiftedActiveTarget.left + shiftedActiveTarget.width + snapInset &&
+            pointerY >= shiftedActiveTarget.top - snapInset &&
+            pointerY <= shiftedActiveTarget.top + shiftedActiveTarget.height + snapInset;
+          const desiredThumbX = isPointerOverActiveTarget ? shiftedActiveTarget.centerX : pointerX;
+          const desiredThumbY = isPointerOverActiveTarget ? shiftedActiveTarget.centerY : pointerY;
+          const previousThumb = state.resizeSession.visualThumbViewport ?? { x: originX, y: originY };
+          const smoothing = isPointerOverActiveTarget ? 1 : 0.38;
+          const nextThumbX = previousThumb.x + (desiredThumbX - previousThumb.x) * smoothing;
+          const nextThumbY = previousThumb.y + (desiredThumbY - previousThumb.y) * smoothing;
+          const visualThumb = {
+            x: nextThumbX,
+            y: nextThumbY,
+          };
+
+          state.resizeSession.visualThumbViewport = visualThumb;
 
           const halo = document.createElement('span');
           halo.className = 'board-resize-ladder__halo';
@@ -2687,11 +2719,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
           }
 
           const thumb = document.createElement('span');
-          thumb.className = 'board-resize-thumb';
+          thumb.className = `board-resize-thumb${isPointerOverActiveTarget ? ' board-resize-thumb--snapped' : ''}`;
           thumb.style.width = `${thumbSize}px`;
           thumb.style.height = `${thumbSize}px`;
-          thumb.style.left = `${shiftedActiveTarget.centerX - ladderLeft}px`;
-          thumb.style.top = `${shiftedActiveTarget.centerY - ladderTop}px`;
+          thumb.style.left = `${visualThumb.x - ladderLeft}px`;
+          thumb.style.top = `${visualThumb.y - ladderTop}px`;
           thumb.innerHTML = '<span class="board-resize-thumb__icon" aria-hidden="true"></span>';
           ladder.appendChild(thumb);
 
