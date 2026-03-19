@@ -2746,7 +2746,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     if (isSingleSelectedTile && selectedItem && tileViewportFrame) {
       const safeAreaInsets = getSafeAreaInsets();
-      const barGap = 10;
+      const topBarGap = 18;
+      const bottomBarGap = 10;
       const horizontalInset = 8;
       const maxBarWidth = Math.min(360, getViewportWidth() - safeAreaInsets.left - safeAreaInsets.right - 16);
       const minActionBarWidth = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl ? 188 : 96;
@@ -2767,11 +2768,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
       );
       const actionBarTop = Math.max(
         safeAreaInsets.top + horizontalInset,
-        tileViewportFrame.top - actionBarHeight - barGap,
+        tileViewportFrame.top - actionBarHeight - topBarGap,
       );
       const cropBarTop = Math.min(
         getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight,
-        tileViewportFrame.top + tileViewportFrame.height + barGap,
+        tileViewportFrame.top + tileViewportFrame.height + bottomBarGap,
       );
       const actionBar = document.createElement('div');
       actionBar.className = 'board-tile-selection-bar board-tile-selection-bar--top';
