@@ -2976,8 +2976,17 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderSelectionToolbar();
 
     if (previewItems.length === 0) {
+      const viewportTransform = getCurrentViewportTransform();
+      const visibleCenterX = state.isMobileMode
+        ? (viewportTransform.contentLeft + viewportTransform.contentRight) / (2 * viewportTransform.zoom)
+        : refs.shell.scrollLeft / viewportTransform.zoom + refs.shell.clientWidth / (2 * viewportTransform.zoom);
+      const visibleCenterY = state.isMobileMode
+        ? (viewportTransform.contentTop + viewportTransform.contentBottom) / (2 * viewportTransform.zoom)
+        : refs.shell.scrollTop / viewportTransform.zoom + refs.shell.clientHeight / (2 * viewportTransform.zoom);
       const empty = document.createElement('div');
       empty.className = 'board-empty-state';
+      empty.style.left = `${visibleCenterX}px`;
+      empty.style.top = `${visibleCenterY}px`;
       empty.innerHTML = `
         <div class="board-empty-state__card">
           <p class="board-empty-state__eyebrow">Start the board</p>

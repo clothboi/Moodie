@@ -1343,6 +1343,19 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+.moodboard-grid .board-utility-panel__danger > :first-child {
+  flex: 1 1 auto;
+}
+
+.moodboard-grid .board-utility-panel__danger .board-hud__button--danger {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 138px;
+  min-height: 54px;
+  padding-inline: 18px;
+  text-align: center;
+}
+
 .moodboard-grid .board-utility-panel__danger-title {
   margin: 0 0 4px;
   color: var(--ui-text-strong);
@@ -1485,16 +1498,20 @@
 }
 
 .moodboard-grid .board-empty-state {
+  position: absolute;
   display: grid;
   place-items: center;
-  padding: 28px;
+  width: min(560px, calc(100% - 48px));
+  max-width: calc(100% - 48px);
+  padding: 0;
   pointer-events: none;
+  transform: translate(-50%, -50%);
 }
 
 .moodboard-grid .board-empty-state__card {
   display: grid;
   gap: 0;
-  width: min(560px, calc(100% - 48px));
+  width: 100%;
   padding: 26px;
   border: 1px solid var(--ui-border-strong);
   border-radius: 24px;
@@ -1552,6 +1569,20 @@
   color: #d2dbe4;
   background: rgba(255, 255, 255, 0.04);
   font-size: 0.76rem;
+}
+
+.moodboard-grid .board-layout-panel__row--color {
+  grid-template-columns: 76px minmax(160px, 1.2fr) minmax(190px, 1fr);
+}
+
+.moodboard-grid .board-layout-panel__backdrop-controls {
+  grid-template-columns: minmax(118px, 1fr) auto;
+  gap: 10px;
+}
+
+.moodboard-grid .board-export-panel__hex-input {
+  min-width: 118px;
+  padding-inline: 14px;
 }
 
 .moodboard-grid .board-tile {
@@ -1667,17 +1698,25 @@
   }
 
   .moodboard-grid .board-empty-state {
-    padding: 16px;
+    width: min(100%, calc(100% - 32px));
+    max-width: calc(100% - 32px);
   }
 
   .moodboard-grid .board-empty-state__card {
-    width: min(100%, 100%);
     padding: 20px;
   }
 
   .moodboard-grid .board-empty-state__hints {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .moodboard-grid .board-layout-panel__row--color {
+    grid-template-columns: 1fr;
+  }
+
+  .moodboard-grid .board-layout-panel__backdrop-controls {
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 }
 
