@@ -683,28 +683,35 @@
 }
 
 .moodboard-grid .board-tile__handle {
-  top: 50%;
-  width: 14px;
-  height: 52px;
+  right: 10px;
+  bottom: 10px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border-radius: 999px;
-  transform: translateY(-50%);
+  border-radius: 10px;
+  transform: none;
 }
 
 .moodboard-grid .board-tile__handle::after {
   content: "";
   position: absolute;
-  inset: 12px 5px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.38);
+  right: 7px;
+  bottom: 7px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid rgba(255, 255, 255, 0.54);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.54);
 }
 
-.moodboard-grid .board-tile__handle--left {
-  left: 8px;
-}
-
-.moodboard-grid .board-tile__handle--right {
-  right: 8px;
+.moodboard-grid .board-tile__handle::before {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid rgba(255, 255, 255, 0.34);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.34);
 }
 
 .moodboard-grid .board-tile__delete,
@@ -1036,12 +1043,22 @@
   }
 
   .moodboard-grid.is-mobile-mode .board-tile__handle {
-    width: 24px;
-    height: 84px;
+    width: 34px;
+    height: 34px;
   }
 
   .moodboard-grid.is-mobile-mode .board-tile__handle::after {
-    inset: 18px 7px;
+    right: 8px;
+    bottom: 8px;
+    width: 11px;
+    height: 11px;
+  }
+
+  .moodboard-grid.is-mobile-mode .board-tile__handle::before {
+    right: 14px;
+    bottom: 14px;
+    width: 7px;
+    height: 7px;
   }
 
   .moodboard-grid.is-mobile-mode .board-crop-anchor {

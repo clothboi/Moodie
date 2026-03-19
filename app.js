@@ -108,7 +108,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     'Drag empty space to select multiple images. Shift + click adds or removes images.',
     'Hold Shift on a single tile to move the entire stack below it (Where possible).',
     'Use the Link button on a selected image to open its source.',
-    'Use the side handles to resize a single image (The arrows move obstructing tiles).',
+    'Use the bottom-right handle to switch between 1 or 2 columns and snap height through the allowed ratio variants.',
     'Use the bottom slider to zoom the image and drag the floating anchor above to reposition it.',
   ];
   const MOBILE_HUD_HINTS = [
@@ -117,7 +117,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     'Use Multi-select in the HUD to tap tiles into a selection or drag a marquee.',
     'Drag a selected tile to move the current selection together.',
     'Use the floating Stack button while dragging a tile to enable the shift-stack move.',
-    'Use the side handles to resize a single image and the bottom slider to zoom its crop.',
+    'Use the bottom-right handle to switch width and step through the allowed height variants, then use the bottom slider to zoom its crop.',
   ];
   const DEFAULT_VISIBLE_COLUMNS = 10;
   const GRID_WIDTH = GRID_SPEC.maxColumns * GRID_SPEC.columnPx;
@@ -1346,28 +1346,41 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
-  function resizeItem(itemId, nextColSpan, items) {
-    return resizeItemWithAnchor(itemId, nextColSpan, 'left', items);
+  function getResizeRowSpanOptions(item, colSpan) {
+    const baseRowSpan = computeRowSpan(item, colSpan);
+    const delta = colSpan === 2 ? 2 : 1;
+    return [...new Set([Math.max(1, baseRowSpan - delta), baseRowSpan, baseRowSpan + delta])].sort((left, right) => left - right);
   }
 
-  function getExpansionAnchorEdge(edge) {
-    return edge === 'left' ? 'right' : 'left';
+  function getNearestAllowedRowSpan(allowedRowSpans, targetRowSpan) {
+    return allowedRowSpans.reduce((closestRowSpan, candidateRowSpan) => {
+      if (closestRowSpan === null) {
+        return candidateRowSpan;
+      }
+
+      const currentDistance = Math.abs(candidateRowSpan - targetRowSpan);
+      const closestDistance = Math.abs(closestRowSpan - targetRowSpan);
+
+      if (currentDistance < closestDistance) {
+        return candidateRowSpan;
+      }
+
+      if (currentDistance === closestDistance && candidateRowSpan < closestRowSpan) {
+        return candidateRowSpan;
+      }
+
+      return closestRowSpan;
+    }, null);
   }
 
-  function buildResizedItem(currentItem, nextColSpan, anchorEdge, items) {
+  function buildResizedItem(currentItem, nextColSpan, nextRowSpan, items) {
     const baseItem = currentItem || null;
 
     if (!baseItem) {
       return null;
     }
 
-    let nextColStart = baseItem.colStart;
-
-    if (nextColSpan === 2) {
-      nextColStart = anchorEdge === 'right' ? baseItem.colStart - 1 : baseItem.colStart;
-    } else if (baseItem.colSpan === 2) {
-      nextColStart = anchorEdge === 'right' ? baseItem.colStart + 1 : baseItem.colStart;
-    }
+    const nextColStart = baseItem.colStart;
 
     if (nextColStart < 0 || nextColStart + nextColSpan > GRID_SPEC.maxColumns) {
       return null;
@@ -1377,20 +1390,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
       ...baseItem,
       colStart: nextColStart,
       colSpan: nextColSpan,
-      rowSpan: computeRowSpan(baseItem, nextColSpan),
+      rowSpan: Math.max(1, nextRowSpan),
       zIndex: items.reduce((maxZIndex, item) => Math.max(maxZIndex, item.zIndex), 0) + 1,
     };
   }
 
-  function resizeItemWithAnchor(itemId, nextColSpan, anchorEdge, items) {
+  function resizeItemToShape(itemId, nextColSpan, nextRowSpan, items) {
     const currentItem = items.find((item) => item.id === itemId);
 
-    if (!currentItem || currentItem.colSpan === nextColSpan) {
+    if (!currentItem || (currentItem.colSpan === nextColSpan && currentItem.rowSpan === nextRowSpan)) {
       return { items, movedItemIds: [] };
     }
 
     const oldColumns = getTouchedColumns(currentItem);
-    const resizedItem = buildResizedItem(currentItem, nextColSpan, anchorEdge, items);
+    const resizedItem = buildResizedItem(currentItem, nextColSpan, nextRowSpan, items);
 
     if (!resizedItem) {
       return { items, movedItemIds: [] };
@@ -1409,7 +1422,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       });
     }
 
-    if (nextColSpan > currentItem.colSpan) {
+    if (nextColSpan > currentItem.colSpan || resizedItem.rowSpan > currentItem.rowSpan) {
       nextItems = pushResizeOverlapsDown(nextItems, resizedItem);
     }
 
@@ -1433,92 +1446,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return {
       items: nextItems,
       movedItemIds: [itemId],
-    };
-  }
-
-  function previewExpandDown(itemId, edge, items) {
-    const anchorEdge = getExpansionAnchorEdge(edge);
-    const result = resizeItemWithAnchor(itemId, 2, anchorEdge, items);
-    const previewItem = getItemById(result.items, itemId);
-
-    if (!previewItem || previewItem.colSpan !== 2) {
-      return null;
-    }
-
-    return {
-      ...result,
-      previewItem,
-    };
-  }
-
-  function previewExpandAcross(itemId, edge, items) {
-    const currentItem = getItemById(items, itemId);
-
-    if (!currentItem || currentItem.colSpan !== 1) {
-      return null;
-    }
-
-    const resizedItem = buildResizedItem(currentItem, 2, getExpansionAnchorEdge(edge), items);
-
-    if (!resizedItem) {
-      return null;
-    }
-
-    const oldColumns = getTouchedColumns(currentItem);
-    const newColumns = getTouchedColumns(resizedItem);
-    const addedColumn = newColumns.find((columnIndex) => !oldColumns.includes(columnIndex));
-    const direction = edge === 'right' ? 1 : -1;
-
-    if (typeof addedColumn !== 'number') {
-      return null;
-    }
-
-    const displaced = sortByVisualOrder(
-      items.filter(
-        (item) =>
-          item.id !== itemId &&
-          touchesColumn(item, addedColumn) &&
-          item.rowStart < getRowEnd(resizedItem) &&
-          getRowEnd(item) > resizedItem.rowStart,
-      ),
-    );
-    const displacedIds = new Set(displaced.map((item) => item.id));
-    let nextItems = sortByVisualOrder(withItemReplaced(items, resizedItem));
-    const locked = nextItems.filter((item) => !displacedIds.has(item.id));
-    const shifted = [];
-
-    for (const item of displaced) {
-      const shiftedItem = {
-        ...item,
-        colStart: item.colStart + direction,
-      };
-
-      if (shiftedItem.colStart < 0 || shiftedItem.colStart + shiftedItem.colSpan > GRID_SPEC.maxColumns) {
-        return null;
-      }
-
-      if (!rectFits(getItemRect(shiftedItem), [...locked, ...shifted], shiftedItem.id)) {
-        return null;
-      }
-
-      shifted.push(shiftedItem);
-    }
-
-    nextItems = sortByVisualOrder([...locked, ...shifted]);
-
-    for (const columnIndex of oldColumns) {
-      nextItems = resolveColumnConflicts(nextItems, {
-        columnIndex,
-        rowStart: resizedItem.rowStart,
-        rowSpan: resizedItem.rowSpan,
-        reservedItemId: resizedItem.id,
-      });
-    }
-
-    return {
-      items: nextItems,
-      movedItemIds: [itemId, ...displaced.map((item) => item.id)],
-      previewItem: getItemById(nextItems, itemId),
     };
   }
 
@@ -1555,64 +1482,33 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     const deltaX = resizeSession.pointerBoard.x - resizeSession.startPointerBoard.x;
-    const threshold = GRID_SPEC.columnPx * 0.35;
-    const { edge, originItem } = resizeSession;
+    const deltaY = resizeSession.pointerBoard.y - resizeSession.startPointerBoard.y;
+    const widthThreshold = GRID_SPEC.columnPx * 0.35;
+    const originItem = resizeSession.originItem;
+    let nextColSpan = originItem.colSpan;
 
-    if (originItem.colSpan === 2) {
-      if (edge === 'left' && deltaX >= threshold) {
-        return { nextColSpan: 1, anchorEdge: 'right' };
-      }
-
-      if (edge === 'right' && deltaX <= -threshold) {
-        return { nextColSpan: 1, anchorEdge: 'left' };
-      }
+    if (originItem.colSpan === 1 && deltaX >= widthThreshold) {
+      nextColSpan = 2;
+    } else if (originItem.colSpan === 2 && deltaX <= -widthThreshold) {
+      nextColSpan = 1;
     }
 
+    if (originItem.colStart + nextColSpan > GRID_SPEC.maxColumns) {
+      nextColSpan = originItem.colSpan;
+    }
+
+    const baseRowSpan = computeRowSpan(originItem, nextColSpan);
+    const anchorRowSpan = nextColSpan === originItem.colSpan ? originItem.rowSpan : baseRowSpan;
+    const targetRowSpan = anchorRowSpan + Math.round(deltaY / GRID_SPEC.rowPx);
+    const allowedRowSpans = getResizeRowSpanOptions(originItem, nextColSpan);
+    const nextRowSpan = getNearestAllowedRowSpan(allowedRowSpans, targetRowSpan);
+
     return {
-      nextColSpan: originItem.colSpan,
-      anchorEdge: originItem.colSpan === 2 ? (edge === 'left' ? 'right' : 'left') : 'left',
+      nextColSpan,
+      nextRowSpan,
+      allowedRowSpans,
+      baseRowSpan,
     };
-  }
-
-  function buildResizeChoiceButtons(anchorItem, edge, previews) {
-    const frame = getTileFrame(anchorItem);
-    const adjacentColumn =
-      edge === 'right'
-        ? anchorItem.colStart + anchorItem.colSpan
-        : anchorItem.colStart - 1;
-    const buttonLeft = adjacentColumn * GRID_SPEC.columnPx + GRID_SPEC.columnPx / 2 - RESIZE_CHOICE_SIZE / 2;
-    const stackGap = 10;
-    const stackTop = frame.top + frame.height / 2 - RESIZE_CHOICE_SIZE - stackGap / 2;
-    const stackBottom = frame.top + frame.height / 2 + stackGap / 2;
-
-    return [
-      {
-        id: 'across',
-        label: edge === 'right' ? '>' : '<',
-        title: 'Move adjacent tiles across one column',
-        rect: {
-          left: buttonLeft,
-          top: stackTop,
-          width: RESIZE_CHOICE_SIZE,
-          height: RESIZE_CHOICE_SIZE,
-        },
-        available: Boolean(previews.across?.previewItem),
-        preview: previews.across,
-      },
-      {
-        id: 'down',
-        label: 'v',
-        title: 'Push adjacent tiles down',
-        rect: {
-          left: buttonLeft,
-          top: stackBottom,
-          width: RESIZE_CHOICE_SIZE,
-          height: RESIZE_CHOICE_SIZE,
-        },
-        available: Boolean(previews.down?.previewItem),
-        preview: previews.down,
-      },
-    ];
   }
 
   function syncResizeSessionState(resizeSession, items) {
@@ -1620,85 +1516,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
-    resizeSession.mode = 'direct';
-    resizeSession.candidateColStart = null;
-    resizeSession.candidateItem = null;
-    resizeSession.choices = [];
-
-    if (!resizeSession.pointerBoard || resizeSession.originItem.colSpan !== 1) {
-      resizeSession.activeChoice = null;
-      return;
-    }
-
-    const deltaX = resizeSession.pointerBoard.x - resizeSession.startPointerBoard.x;
-    const threshold = GRID_SPEC.columnPx * 0.35;
-    const crossedThreshold =
-      (resizeSession.edge === 'left' && deltaX <= -threshold) ||
-      (resizeSession.edge === 'right' && deltaX >= threshold);
-
-    if (!crossedThreshold) {
-      resizeSession.activeChoice = null;
-      return;
-    }
-
-    const downPreview = previewExpandDown(resizeSession.itemId, resizeSession.edge, items);
-
-    if (!downPreview?.previewItem) {
-      resizeSession.activeChoice = null;
-      return;
-    }
-
-    const acrossPreview = previewExpandAcross(resizeSession.itemId, resizeSession.edge, items);
-    const choices = buildResizeChoiceButtons(resizeSession.originItem, resizeSession.edge, {
-      across: acrossPreview,
-      down: downPreview,
-    });
-    const hoveredChoice = choices.find(
-      (choice) => choice.available && pointInRect(resizeSession.pointerBoard, choice.rect),
-    );
-
-    resizeSession.mode = 'expand-choice';
-    resizeSession.candidateColStart = downPreview.previewItem.colStart;
-    resizeSession.candidateItem = downPreview.previewItem;
-    resizeSession.choices = choices;
-
-    if (hoveredChoice) {
-      resizeSession.activeChoice = hoveredChoice.id;
-      return;
-    }
-
-    if (!choices.some((choice) => choice.id === resizeSession.activeChoice && choice.available)) {
-      resizeSession.activeChoice = null;
-    }
+    resizeSession.intent = getResizeIntent(resizeSession, items);
   }
 
   function previewResize(resizeSession, items) {
-    if (resizeSession.mode === 'expand-choice') {
-      const activeChoice = resizeSession.choices.find(
-        (choice) => choice.id === resizeSession.activeChoice && choice.available,
-      );
-
-      return {
-        items: activeChoice?.preview?.items ?? items,
-        previewItem: activeChoice?.preview?.previewItem ?? resizeSession.originItem,
-        intent: activeChoice ? { nextColSpan: 2, anchorEdge: getExpansionAnchorEdge(resizeSession.edge) } : null,
-        mode: 'expand-choice',
-        activeChoice: resizeSession.activeChoice,
-        choices: resizeSession.choices,
-        candidateItem: resizeSession.candidateItem,
-      };
-    }
-
-    const intent = getResizeIntent(resizeSession);
+    const intent = resizeSession.intent ?? getResizeIntent(resizeSession, items);
 
     if (!intent) {
       return null;
     }
 
-    const result = resizeItemWithAnchor(
+    const result = resizeItemToShape(
       resizeSession.itemId,
       intent.nextColSpan,
-      intent.anchorEdge,
+      intent.nextRowSpan,
       items,
     );
 
@@ -1706,10 +1537,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
       ...result,
       previewItem: getItemById(result.items, resizeSession.itemId),
       intent,
-      mode: 'direct',
-      activeChoice: null,
-      choices: [],
-      candidateItem: null,
     };
   }
 
@@ -2371,8 +2198,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       detail.className = 'board-selection-toolbar__detail';
       detail.textContent =
         primaryItem.sourceKind === 'web' && primaryItem.sourceUrl
-          ? 'Resize from the tile edges, adjust crop below, or open the source link.'
-          : 'Resize from the tile edges and use the crop controls below to reframe the image.';
+          ? 'Resize from the bottom-right handle, adjust crop below, or open the source link.'
+          : 'Resize from the bottom-right handle and use the crop controls below to reframe the image.';
       summary.append(detail);
     } else {
       const detail = document.createElement('p');
@@ -2739,33 +2566,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.stage.appendChild(preview);
   }
 
-  function renderResizeChoices(previewResult) {
-    if (!state.resizeSession || previewResult?.mode !== 'expand-choice') {
-      return;
-    }
-
-    for (const choice of previewResult.choices || []) {
-      const button = document.createElement('div');
-      button.className = `board-resize-choice${
-        choice.available ? '' : ' board-resize-choice--disabled'
-      }${previewResult.activeChoice === choice.id ? ' board-resize-choice--active' : ''}`;
-      button.setAttribute('role', 'presentation');
-      button.setAttribute('aria-hidden', 'true');
-      button.title = choice.title;
-      button.style.left = `${choice.rect.left}px`;
-      button.style.top = `${choice.rect.top}px`;
-      button.style.width = `${choice.rect.width}px`;
-      button.style.height = `${choice.rect.height}px`;
-
-      const icon = document.createElement('span');
-      icon.className = 'board-resize-choice__icon';
-      icon.textContent = choice.label;
-      button.appendChild(icon);
-
-      refs.stage.appendChild(button);
-    }
-  }
-
   function renderBoard() {
     const dragPreviewResult = state.dragSession ? previewDragMove(state.dragSession, state.items) : null;
     const resizePreviewResult = !state.dragSession && state.resizeSession ? previewResize(state.resizeSession, state.items) : null;
@@ -2899,20 +2699,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
         if (selectedCount === 1) {
           cropAnchorTarget = { item, frame };
-          const leftHandle = document.createElement('button');
-          leftHandle.type = 'button';
-          leftHandle.className = 'board-tile__handle board-tile__handle--left';
-          leftHandle.setAttribute('aria-label', 'Resize from left edge');
-          leftHandle.addEventListener('pointerdown', (event) => startResize(event, item, 'left'));
-
-          const rightHandle = document.createElement('button');
-          rightHandle.type = 'button';
-          rightHandle.className = 'board-tile__handle board-tile__handle--right';
-          rightHandle.setAttribute('aria-label', 'Resize from right edge');
-          rightHandle.addEventListener('pointerdown', (event) => startResize(event, item, 'right'));
-
-          actions.appendChild(leftHandle);
-          actions.appendChild(rightHandle);
+          const cornerHandle = document.createElement('button');
+          cornerHandle.type = 'button';
+          cornerHandle.className = 'board-tile__handle board-tile__handle--corner';
+          cornerHandle.setAttribute('aria-label', 'Resize from bottom-right corner');
+          cornerHandle.addEventListener('pointerdown', (event) => startResize(event, item));
+          actions.appendChild(cornerHandle);
         }
 
         tile.appendChild(actions);
@@ -2970,7 +2762,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderPlaceholder(previewResult);
     renderAffectedPlaceholders(previewItems);
     renderDragPreview(previewResult);
-    renderResizeChoices(previewResult);
     renderMarqueeSelection();
     renderOverlayControls(cropAnchorTarget?.item ?? null, cropAnchorTarget?.frame ?? null, previewResult);
     renderSelectionToolbar();
@@ -3709,7 +3500,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     window.addEventListener('keyup', onKeyUp);
   }
 
-  function startResize(event, item, edge) {
+  function startResize(event, item) {
     event.stopPropagation();
     event.preventDefault();
     setSingleSelection(item.id);
@@ -3721,15 +3512,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     state.resizeSession = {
       itemId: item.id,
       pointerId: event.pointerId,
-      edge,
       originItem: { ...item },
       startPointerBoard,
       pointerBoard: startPointerBoard,
-      mode: 'direct',
-      candidateColStart: null,
-      candidateItem: null,
-      activeChoice: null,
-      choices: [],
+      intent: null,
     };
     syncResizeSessionState(state.resizeSession, state.items);
     setWidgetInteractionState('is-resizing', true);
@@ -3764,24 +3550,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const visibleBoardRect = refs.board.getBoundingClientRect();
       state.resizeSession.pointerBoard = getPointWithinBoard(nextBoardRect, upEvent.clientX, upEvent.clientY);
       syncResizeSessionState(state.resizeSession, state.items);
-
-      if (state.resizeSession.mode === 'expand-choice') {
-        const activeChoice = state.resizeSession.choices.find(
-          (choice) => choice.id === state.resizeSession.activeChoice && choice.available,
-        );
-
-        if (!activeChoice?.preview?.items) {
-          cancelResize();
-          return;
-        }
-
-        state.items = activeChoice.preview.items;
-        saveBoardState();
-        state.resizeSession = null;
-        setWidgetInteractionState('is-resizing', false);
-        render();
-        return;
-      }
 
       const isInsideBoard =
         upEvent.clientX >= visibleBoardRect.left &&
