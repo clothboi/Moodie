@@ -57,6 +57,7 @@ export function getMobileViewportTransform({
   minZoom = 0.2,
   maxZoom = 1.5,
   zoomStep = 0.05,
+  baseZoom = null,
   zoomOutSteps = 0,
   sidePadding = 16,
   bottomPadding = 16,
@@ -89,7 +90,8 @@ export function getMobileViewportTransform({
     minZoom,
     maxZoom,
   );
-  const zoom = clamp(fitZoom - zoomOutSteps * zoomStep, minZoom, maxZoom);
+  const preferredZoom = Number.isFinite(baseZoom) ? clamp(snapToStep(baseZoom, zoomStep), minZoom, maxZoom) : fitZoom;
+  const zoom = clamp(preferredZoom - zoomOutSteps * zoomStep, minZoom, maxZoom);
   const offsetX = contentLeft + (availableWidth - targetBounds.width * zoom) / 2 - targetBounds.left * zoom;
   const offsetY = contentTop + (availableHeight - targetBounds.height * zoom) / 2 - targetBounds.top * zoom;
 

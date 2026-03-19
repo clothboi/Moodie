@@ -228,6 +228,64 @@
   white-space: nowrap;
 }
 
+.moodboard-grid .board-mobile-zoom {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--safe-area-right) + 14px);
+  z-index: 1990;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    rgba(11, 14, 18, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 20px 40px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(18px);
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.moodboard-grid .board-mobile-zoom[hidden] {
+  display: none;
+}
+
+.moodboard-grid.is-mobile-mode .board-mobile-zoom {
+  display: inline-flex;
+}
+
+.moodboard-grid.is-mobile-mode .board-mobile-zoom[hidden] {
+  display: none;
+}
+
+.moodboard-grid .board-mobile-zoom__value {
+  margin: 0;
+  color: var(--ui-text-strong);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.moodboard-grid .board-mobile-zoom__slider {
+  width: 28px;
+  height: 220px;
+  margin: 0;
+  accent-color: rgb(125, 193, 255);
+  cursor: ns-resize;
+  direction: rtl;
+  writing-mode: vertical-lr;
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+}
+
 .moodboard-grid .board-layout-panel,
 .moodboard-grid .board-hints-panel,
 .moodboard-grid .board-export-panel {
@@ -1879,6 +1937,17 @@
     min-height: 48px;
     padding: 0 10px;
     font-size: 0.76rem;
+  }
+
+  .moodboard-grid .board-mobile-zoom {
+    top: calc(var(--safe-area-top) + 124px);
+    right: calc(var(--safe-area-right) + 10px);
+    padding: 10px 8px;
+    transform: none;
+  }
+
+  .moodboard-grid .board-mobile-zoom__slider {
+    height: min(40vh, 240px);
   }
 
   .moodboard-grid .board-utility-panel,

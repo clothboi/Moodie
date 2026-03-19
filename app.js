@@ -62,7 +62,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const GRID_SPEC = {
     rowPx: 52.8,
     columnPx: 158.4,
-    maxColumns: 15,
+    maxColumns: 20,
     minRows: 18,
   };
 
@@ -114,12 +114,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const MOBILE_HUD_HINTS = [
     'Drop files, links, or paste images into the fullscreen board.',
     'The board auto-fits on touch devices and snaps out if a dragged tile gets too close to the edge.',
+    'Use the vertical zoom rail on the right edge to scale the board instead of pinch zooming.',
     'Use Multi-select in the HUD to tap tiles into a selection or drag a marquee.',
     'Drag a selected tile to move the current selection together.',
     'Use the floating Stack button while dragging a tile to enable the shift-stack move.',
     'Drag the bottom-right handle through the visible snap targets to switch width and step through the allowed height variants, then use the bottom slider to zoom its crop.',
   ];
-  const DEFAULT_VISIBLE_COLUMNS = 10;
+  const DEFAULT_VISIBLE_COLUMNS = 20;
   const GRID_WIDTH = GRID_SPEC.maxColumns * GRID_SPEC.columnPx;
   const persistedBoardState = loadBoardState();
   const exportImageCache = new Map();
@@ -137,6 +138,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     exportBackgroundHex: persistedBoardState.layout.exportBackgroundHex,
     exportBackgroundHexDraft: persistedBoardState.layout.exportBackgroundHex,
     isMobileMode: false,
+    mobileBaseZoom: null,
     isMultiSelectMode: false,
     selectedItemIds: [],
     selectionAnchorId: null,
@@ -274,6 +276,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     state.isMobileMode = nextIsMobileMode;
     state.isMultiSelectMode = nextIsMobileMode ? state.isMultiSelectMode : false;
     state.viewportTransform = null;
+    state.mobileBaseZoom = null;
     state.mobileZoomOutSteps = 0;
     state.isMobileEdgeZoomLocked = false;
     state.dragSession = null;
@@ -372,11 +375,29 @@ function createMoodboardGrid(container, initialOptions = {}) {
       minZoom: MOBILE_ZOOM_MIN,
       maxZoom: ZOOM_MAX,
       zoomStep: ZOOM_STEP,
+      baseZoom: state.mobileBaseZoom,
       zoomOutSteps: state.mobileZoomOutSteps,
       sidePadding: MOBILE_VIEWPORT_SIDE_PADDING,
       bottomPadding: MOBILE_VIEWPORT_BOTTOM_PADDING,
       topGap: MOBILE_VIEWPORT_TOP_GAP,
     });
+  }
+
+  function setMobileZoom(nextZoom) {
+    if (!state.isMobileMode) {
+      return;
+    }
+
+    const normalizedZoom = clamp(Math.round(nextZoom / ZOOM_STEP) * ZOOM_STEP, MOBILE_ZOOM_MIN, ZOOM_MAX);
+
+    if (normalizedZoom === state.mobileBaseZoom) {
+      return;
+    }
+
+    state.mobileBaseZoom = normalizedZoom;
+    state.mobileZoomOutSteps = 0;
+    state.isMobileEdgeZoomLocked = false;
+    render();
   }
 
   function getMinZoom() {
@@ -2398,6 +2419,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
     );
   }
 
+  function renderMobileZoomRail() {
+    if (!refs.mobileZoomRail || !refs.mobileZoomSlider || !refs.mobileZoomValue) {
+      return;
+    }
+
+    const shouldShow = state.isMobileMode;
+    refs.mobileZoomRail.hidden = !shouldShow;
+
+    if (!shouldShow) {
+      return;
+    }
+
+    const displayedZoom = clamp(state.zoom || state.viewportTransform?.zoom || MOBILE_ZOOM_MIN, MOBILE_ZOOM_MIN, ZOOM_MAX);
+    refs.mobileZoomSlider.min = String(MOBILE_ZOOM_MIN);
+    refs.mobileZoomSlider.max = String(ZOOM_MAX);
+    refs.mobileZoomSlider.step = String(ZOOM_STEP);
+    refs.mobileZoomSlider.value = String(displayedZoom);
+    refs.mobileZoomValue.textContent = `${Math.round(displayedZoom * 100)}%`;
+  }
+
   function renderSelectionToolbar() {
     if (!refs.selectionToolbar) {
       return;
@@ -2565,6 +2606,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderToast();
     syncLayoutControls();
     renderHintsPanel();
+    renderMobileZoomRail();
     refs.root?.classList.toggle('is-mobile-mode', state.isMobileMode);
 
     if (refs.utilityToggle) {
@@ -3119,6 +3161,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     state.viewportTransform = state.isMobileMode ? viewportTransform : null;
     state.zoom = viewportTransform.zoom;
+    renderMobileZoomRail();
 
     refs.board.style.width = state.isMobileMode
       ? `${visibleWidth}px`
@@ -4402,6 +4445,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
             >Utilities</button>
           </div>
         </div>
+        <div class="board-mobile-zoom" data-role="mobile-zoom" hidden>
+          <span class="board-mobile-zoom__value" data-role="mobile-zoom-value">100%</span>
+          <input
+            type="range"
+            class="board-mobile-zoom__slider"
+            data-role="mobile-zoom-slider"
+            min="${MOBILE_ZOOM_MIN}"
+            max="${ZOOM_MAX}"
+            step="${ZOOM_STEP}"
+            value="1"
+            aria-label="Board zoom"
+          />
+        </div>
         <div class="board-utility-panel" data-role="utility-panel" hidden>
           <div class="board-panel__header">
             <div>
@@ -4587,6 +4643,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.hud = refs.root.querySelector('[data-role="hud"]');
     refs.hudContext = getRoleRef('hud-context');
     refs.hudActions = getRoleRef('hud-actions');
+    refs.mobileZoomRail = getRoleRef('mobile-zoom');
+    refs.mobileZoomSlider = getRoleRef('mobile-zoom-slider');
+    refs.mobileZoomValue = getRoleRef('mobile-zoom-value');
     refs.selectionToolbar = getRoleRef('selection-toolbar');
     refs.toast = getRoleRef('toast');
 
@@ -4604,6 +4663,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     addManagedEventListener(refs.importImages, 'click', () => {
       setActiveWidget();
       openImportPicker();
+    });
+    addManagedEventListener(refs.mobileZoomSlider, 'input', (event) => {
+      setActiveWidget();
+      setMobileZoom(Number(event.currentTarget.value));
     });
     addManagedEventListener(refs.multiSelectToggle, 'click', toggleMultiSelectMode);
     addManagedEventListener(refs.importInput, 'change', async (event) => {
@@ -4739,6 +4802,25 @@ function createMoodboardGrid(container, initialOptions = {}) {
       },
       { passive: false },
     );
+
+    addManagedEventListener(
+      refs.root,
+      'touchmove',
+      (event) => {
+        if (state.isMobileMode && event.touches.length > 1) {
+          event.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach((eventName) => {
+      addManagedEventListener(refs.root, eventName, (event) => {
+        if (state.isMobileMode) {
+          event.preventDefault();
+        }
+      });
+    });
 
     addManagedEventListener(refs.stage, 'click', (event) => {
       if (consumeSuppressedClick()) {
