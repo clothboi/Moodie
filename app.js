@@ -1396,6 +1396,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }, null);
   }
 
+  function getResizeVariantForRowSpan(rowSpanVariants, rowSpan) {
+    const exactVariant = rowSpanVariants.find((variant) => variant.rowSpan === rowSpan);
+
+    if (exactVariant) {
+      return exactVariant;
+    }
+
+    return getNearestResizeRowSpanVariant(rowSpanVariants, rowSpan) ?? rowSpanVariants[1] ?? rowSpanVariants[0];
+  }
+
   function getResizeTargetId(colSpan, slot) {
     return `resize-${colSpan}-${slot}`;
   }
@@ -1415,9 +1425,15 @@ function createMoodboardGrid(container, initialOptions = {}) {
         rowIndex: variant.rowIndex,
       })),
     );
+    const originVariants = getResizeRowSpanVariants(
+      resizeSession.originItem,
+      resizeSession.originItem.colSpan,
+    );
+    const originVariant = getResizeVariantForRowSpan(originVariants, resizeSession.originItem.rowSpan);
 
     return {
       activeTargetId: getResizeTargetId(resizeSession.intent.nextColSpan, resizeSession.intent.activeSlot),
+      originTargetId: getResizeTargetId(resizeSession.originItem.colSpan, originVariant?.slot ?? 'base'),
       targets,
     };
   }
@@ -1580,16 +1596,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return null;
     }
 
-    const result = resizeItemToShape(
-      resizeSession.itemId,
-      intent.nextColSpan,
-      intent.nextRowSpan,
-      items,
-    );
+    const commitResult = resizeItemToShape(resizeSession.itemId, intent.nextColSpan, intent.nextRowSpan, items);
+    const previewItem =
+      buildResizedItem(resizeSession.originItem, intent.nextColSpan, intent.nextRowSpan, items) ??
+      resizeSession.originItem;
 
     return {
-      ...result,
-      previewItem: getItemById(result.items, resizeSession.itemId),
+      items,
+      commitItems: commitResult.items,
+      movedItemIds: commitResult.movedItemIds,
+      previewItem,
       intent,
     };
   }
@@ -2418,6 +2434,31 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function renderPlaceholder(previewResult) {
+    if (state.resizeSession && previewResult?.previewItem) {
+      const originItem = state.resizeSession.originItem;
+      const previewItem = previewResult.previewItem;
+      const changed =
+        previewItem.colStart !== originItem.colStart ||
+        previewItem.rowStart !== originItem.rowStart ||
+        previewItem.colSpan !== originItem.colSpan ||
+        previewItem.rowSpan !== originItem.rowSpan;
+
+      if (!changed) {
+        return;
+      }
+
+      const frame = getTileFrame(previewItem);
+      const placeholder = document.createElement('div');
+
+      placeholder.className = 'board-placeholder board-placeholder--resize-ghost';
+      placeholder.style.left = `${frame.left}px`;
+      placeholder.style.top = `${frame.top}px`;
+      placeholder.style.width = `${frame.width}px`;
+      placeholder.style.height = `${frame.height}px`;
+      refs.stage.appendChild(placeholder);
+      return;
+    }
+
     if (!state.dragSession || (state.dragSession.groupItemIds?.length ?? 0) > 1) {
       return;
     }
@@ -2532,20 +2573,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
       if (resizePreviewItem) {
         const safeAreaInsets = getSafeAreaInsets();
         const overlay = state.resizeSession.overlay;
-        const previewFrame = getViewportFrameRect(getTileFrame(resizePreviewItem), viewportTransform);
+        const originFrame = getViewportFrameRect(getTileFrame(state.resizeSession.originItem), viewportTransform);
         const thumbSize = state.isMobileMode ? 34 : 28;
         const singleWidth = state.isMobileMode ? 24 : 22;
         const doubleWidth = state.isMobileMode ? 40 : 36;
         const rowPitch = state.isMobileMode ? 38 : 34;
         const columnGap = state.isMobileMode ? 14 : 12;
-        const tileOffset = state.isMobileMode ? 18 : 14;
         const handleInset = state.isMobileMode ? 12 : 10;
         const haloPadding = state.isMobileMode ? 12 : 10;
-        const centerY = previewFrame.top + previewFrame.height - handleInset - thumbSize / 2;
-        const columnCenters = [
-          previewFrame.left + previewFrame.width + tileOffset + singleWidth / 2,
-          previewFrame.left + previewFrame.width + tileOffset + singleWidth + columnGap + doubleWidth / 2,
-        ];
+        const originTarget = overlay.targets.find((target) => target.id === overlay.originTargetId) ?? overlay.targets[0];
+        const anchorCenterX = originFrame.left + originFrame.width - handleInset - thumbSize / 2;
+        const anchorCenterY = originFrame.top + originFrame.height - handleInset - thumbSize / 2;
+        const columnShift = singleWidth / 2 + columnGap + doubleWidth / 2;
         const targetFrames = overlay.targets.map((target) => {
           const width = target.colSpan === 1 ? singleWidth : doubleWidth;
           const height = clamp(
@@ -2553,8 +2592,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
             state.isMobileMode ? 18 : 16,
             state.isMobileMode ? 40 : 32,
           );
-          const centerX = columnCenters[target.colIndex];
-          const targetCenterY = centerY + (target.rowIndex - 1) * rowPitch;
+          const centerX = anchorCenterX + (target.colIndex - originTarget.colIndex) * columnShift;
+          const targetCenterY = anchorCenterY + (target.rowIndex - originTarget.rowIndex) * rowPitch;
 
           return {
             ...target,
@@ -2569,8 +2608,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
         const activeTarget = targetFrames.find((target) => target.id === overlay.activeTargetId) ?? targetFrames[0];
 
         if (activeTarget) {
-          let minLeft = Math.min(previewFrame.left + previewFrame.width - handleInset, ...targetFrames.map((target) => target.left));
-          let minTop = Math.min(centerY - thumbSize / 2, ...targetFrames.map((target) => target.top));
+          let minLeft = Math.min(anchorCenterX - thumbSize / 2, ...targetFrames.map((target) => target.left));
+          let minTop = Math.min(anchorCenterY - thumbSize / 2, ...targetFrames.map((target) => target.top));
           let maxRight = Math.max(activeTarget.centerX + thumbSize / 2, ...targetFrames.map((target) => target.left + target.width));
           let maxBottom = Math.max(activeTarget.centerY + thumbSize / 2, ...targetFrames.map((target) => target.top + target.height));
           const minViewportLeft = safeAreaInsets.left + 8;
@@ -2601,8 +2640,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
             centerY: target.centerY + shiftY,
           }));
           const shiftedActiveTarget = shiftedTargets.find((target) => target.id === overlay.activeTargetId) ?? shiftedTargets[0];
-          const originX = previewFrame.left + previewFrame.width - handleInset - thumbSize / 2 + shiftX;
-          const originY = centerY + shiftY;
+          const originX = anchorCenterX + shiftX;
+          const originY = anchorCenterY + shiftY;
 
           minLeft = Math.min(originX, ...shiftedTargets.map((target) => target.left));
           minTop = Math.min(originY - thumbSize / 2, ...shiftedTargets.map((target) => target.top));
@@ -2762,7 +2801,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const dragPreviewResult = state.dragSession ? previewDragMove(state.dragSession, state.items) : null;
     const resizePreviewResult = !state.dragSession && state.resizeSession ? previewResize(state.resizeSession, state.items) : null;
     const previewResult = dragPreviewResult ?? resizePreviewResult;
-    const previewItems = previewResult?.items ?? state.items;
+    const previewItems = dragPreviewResult?.items ?? state.items;
     const rows = getBoardRows(previewItems);
     const visibleHeight = getViewportHeight();
     const visibleWidth = getViewportWidth();
@@ -3757,7 +3796,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const preview = previewResize(state.resizeSession, state.items);
 
       if (preview) {
-        state.items = preview.items;
+        state.items = preview.commitItems ?? preview.items;
         saveBoardState();
       }
 
