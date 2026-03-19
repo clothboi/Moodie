@@ -1493,6 +1493,17 @@ function createMoodboardGrid(container, initialOptions = {}) {
           viewportTransform,
         )
       : null;
+    const startPointerViewport = resizeSession.startPointerBoard
+      ? getViewportFrameRect(
+          {
+            left: resizeSession.startPointerBoard.x,
+            top: resizeSession.startPointerBoard.y,
+            width: 0,
+            height: 0,
+          },
+          viewportTransform,
+        )
+      : null;
     const zoom = viewportTransform.zoom;
     const thumbBaseSize = state.isMobileMode ? 34 : 28;
     const thumbSize = thumbBaseSize * zoom;
@@ -1569,6 +1580,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
         ? {
             x: pointerViewport.left + shiftX,
             y: pointerViewport.top + shiftY,
+          }
+        : null,
+      startPointerViewport: startPointerViewport
+        ? {
+            x: startPointerViewport.left + shiftX,
+            y: startPointerViewport.top + shiftY,
           }
         : null,
       targetFrames: shiftedTargets,
@@ -1692,15 +1709,28 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const overlay = buildResizeOverlayState(resizeSession);
     const layout = getResizeOverlayLayout({ ...resizeSession, overlay });
     const snapInset = state.isMobileMode ? 12 : 10;
-    const hoveredTarget = layout?.pointerViewport
-      ? layout.targetFrames.find(
-          (target) =>
-            !target.disabled &&
-            layout.pointerViewport.x >= target.left - snapInset &&
-            layout.pointerViewport.x <= target.left + target.width + snapInset &&
-            layout.pointerViewport.y >= target.top - snapInset &&
-            layout.pointerViewport.y <= target.top + target.height + snapInset,
-        ) ?? null
+    const movementThreshold = state.isMobileMode ? 10 : 8;
+    const hasClearedOriginDeadzone =
+      Boolean(layout?.pointerViewport && layout?.startPointerViewport) &&
+      Math.hypot(
+        layout.pointerViewport.x - layout.startPointerViewport.x,
+        layout.pointerViewport.y - layout.startPointerViewport.y,
+      ) >= movementThreshold;
+    const hoveredTarget = hasClearedOriginDeadzone
+      ? layout?.targetFrames
+          .filter(
+            (target) =>
+              !target.disabled &&
+              layout.pointerViewport.x >= target.left - snapInset &&
+              layout.pointerViewport.x <= target.left + target.width + snapInset &&
+              layout.pointerViewport.y >= target.top - snapInset &&
+              layout.pointerViewport.y <= target.top + target.height + snapInset,
+          )
+          .sort(
+            (left, right) =>
+              Math.hypot(layout.pointerViewport.x - left.centerX, layout.pointerViewport.y - left.centerY) -
+              Math.hypot(layout.pointerViewport.x - right.centerX, layout.pointerViewport.y - right.centerY),
+          )[0] ?? null
       : null;
     const originTarget =
       layout?.targetFrames.find((target) => target.id === layout.originTargetId) ?? layout?.targetFrames[0] ?? null;
