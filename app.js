@@ -2755,6 +2755,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const cropBarWidth = clamp(tileViewportFrame.width, 180, maxBarWidth);
       const actionBarHeight = 46;
       const cropBarHeight = 58;
+      const stackedBarGap = 8;
       const tileCenterX = tileViewportFrame.left + tileViewportFrame.width / 2;
       const actionBarLeft = clamp(
         tileCenterX - actionBarWidth / 2,
@@ -2766,14 +2767,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
         safeAreaInsets.left + horizontalInset,
         getViewportWidth() - safeAreaInsets.right - horizontalInset - cropBarWidth,
       );
-      const actionBarTop = Math.max(
-        safeAreaInsets.top + horizontalInset,
-        tileViewportFrame.top - actionBarHeight - topBarGap,
-      );
-      const cropBarTop = Math.min(
-        getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight,
-        tileViewportFrame.top + tileViewportFrame.height + bottomBarGap,
-      );
+      const minTop = safeAreaInsets.top + horizontalInset;
+      const maxCropBarTop = getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight;
+      const preferredCropBarTopBelow = tileViewportFrame.top + tileViewportFrame.height + bottomBarGap;
+      const canPlaceCropBelow = preferredCropBarTopBelow <= maxCropBarTop;
+      const cropBarTop = canPlaceCropBelow
+        ? preferredCropBarTopBelow
+        : Math.max(minTop, tileViewportFrame.top - cropBarHeight - bottomBarGap);
+      const actionBarTop = canPlaceCropBelow
+        ? Math.max(minTop, tileViewportFrame.top - actionBarHeight - topBarGap)
+        : Math.max(minTop, cropBarTop - actionBarHeight - stackedBarGap);
       const actionBar = document.createElement('div');
       actionBar.className = 'board-tile-selection-bar board-tile-selection-bar--top';
       actionBar.style.left = `${actionBarLeft}px`;
