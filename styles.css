@@ -1592,7 +1592,7 @@
 }
 
 .moodboard-grid .board-layout-panel__row--color .board-layout-panel__label {
-  flex: 0 0 74px;
+  flex: 0 0 56px;
 }
 
 .moodboard-grid .board-layout-panel__row--color .board-layout-panel__color-picker {
@@ -1601,8 +1601,8 @@
 
 .moodboard-grid .board-export-panel__hex-input {
   flex: 1 1 auto;
-  min-width: 118px;
-  padding-inline: 14px;
+  min-width: 96px;
+  padding-inline: 12px;
 }
 
 .moodboard-grid .board-tile {
