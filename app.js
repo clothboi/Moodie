@@ -1469,12 +1469,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
           viewportTransform,
         )
       : null;
-    const thumbSize = state.isMobileMode ? 34 : 28;
+    const zoom = viewportTransform.zoom;
+    const thumbBaseSize = state.isMobileMode ? 34 : 28;
+    const thumbSize = thumbBaseSize * zoom;
     const targetSize = thumbSize;
-    const rowPitch = state.isMobileMode ? 38 : 34;
-    const columnGap = state.isMobileMode ? 14 : 12;
-    const handleInset = state.isMobileMode ? 12 : 10;
-    const haloPadding = state.isMobileMode ? 12 : 10;
+    const rowPitch = (state.isMobileMode ? 38 : 34) * zoom;
+    const columnGap = (state.isMobileMode ? 14 : 12) * zoom;
+    const handleInset = (state.isMobileMode ? 12 : 10) * zoom;
+    const haloPadding = (state.isMobileMode ? 12 : 10) * zoom;
     const originTarget = overlay.targets.find((target) => target.id === overlay.originTargetId) ?? overlay.targets[0];
     const originX = originFrame.left + originFrame.width - handleInset - thumbSize / 2;
     const originY = originFrame.top + originFrame.height - handleInset - thumbSize / 2;
@@ -2708,6 +2710,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
           ladder.style.top = `${ladderTop}px`;
           ladder.style.width = `${maxRight - minLeft + haloPadding * 2}px`;
           ladder.style.height = `${maxBottom - minTop + haloPadding * 2}px`;
+          ladder.style.setProperty('--resize-control-radius', `${10 * viewportTransform.zoom}px`);
+          ladder.style.setProperty('--resize-panel-radius', `${(10 * viewportTransform.zoom) + (4 * viewportTransform.zoom)}px`);
+          ladder.style.setProperty('--resize-icon-main-size', `${9 * viewportTransform.zoom}px`);
+          ladder.style.setProperty('--resize-icon-main-offset', `${7 * viewportTransform.zoom}px`);
+          ladder.style.setProperty('--resize-icon-inner-size', `${5 * viewportTransform.zoom}px`);
+          ladder.style.setProperty('--resize-icon-inner-offset', `${12 * viewportTransform.zoom}px`);
+          ladder.style.setProperty('--resize-icon-stroke', `${2 * viewportTransform.zoom}px`);
 
           const snapInset = state.isMobileMode ? 12 : 10;
           const isPointerOverActiveTarget =
