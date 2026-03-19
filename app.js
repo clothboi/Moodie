@@ -2690,25 +2690,25 @@ function createMoodboardGrid(container, initialOptions = {}) {
       !state.resizeSession &&
       !state.marqueeSession,
     );
-    const rootRect = refs.root?.getBoundingClientRect() ?? { left: 0, top: 0 };
-    const selectedTileNode = selectedItem
-      ? refs.stage?.querySelector(`[data-item-id="${selectedItem.id}"]`)
-      : null;
+    const baseTileViewportFrame =
+      selectedItem && frame ? getViewportFrameRect(frame, viewportTransform) : null;
     const tileViewportFrame =
-      selectedTileNode && refs.root
+      baseTileViewportFrame && isSingleSelectedTile
         ? (() => {
-            const tileRect = selectedTileNode.getBoundingClientRect();
+            const liftScale = 1.1;
+            const nextWidth = baseTileViewportFrame.width * liftScale;
+            const nextHeight = baseTileViewportFrame.height * liftScale;
+            const deltaWidth = nextWidth - baseTileViewportFrame.width;
+            const deltaHeight = nextHeight - baseTileViewportFrame.height;
 
             return {
-              left: tileRect.left - rootRect.left,
-              top: tileRect.top - rootRect.top,
-              width: tileRect.width,
-              height: tileRect.height,
+              left: baseTileViewportFrame.left - deltaWidth / 2,
+              top: baseTileViewportFrame.top - deltaHeight / 2 - 4,
+              width: nextWidth,
+              height: nextHeight,
             };
           })()
-        : selectedItem && frame
-          ? getViewportFrameRect(frame, viewportTransform)
-          : null;
+        : baseTileViewportFrame;
 
     if (selectedItem && !state.dragSession && !state.resizeSession && !state.marqueeSession) {
       const session = state.cropAnchorSession?.itemId === selectedItem.id ? state.cropAnchorSession : null;
