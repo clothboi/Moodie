@@ -1482,14 +1482,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       : null;
     const zoom = viewportTransform.zoom;
     const thumbBaseSize = state.isMobileMode ? 34 : 28;
-    const thumbSize = thumbBaseSize * zoom;
+    const thumbSize = resizeSession.anchorViewport?.size ?? thumbBaseSize * zoom;
     const targetSize = thumbSize;
     const rowPitch = (state.isMobileMode ? 38 : 34) * zoom;
     const columnGap = (state.isMobileMode ? 14 : 12) * zoom;
     const handleInset = (state.isMobileMode ? 12 : 10) * zoom;
     const haloPadding = (state.isMobileMode ? 12 : 10) * zoom;
-    const originX = originFrame.left + originFrame.width - handleInset - thumbSize / 2;
-    const originY = originFrame.top + originFrame.height - handleInset - thumbSize / 2;
+    const originX = resizeSession.anchorViewport?.x ?? (originFrame.left + originFrame.width - handleInset - thumbSize / 2);
+    const originY = resizeSession.anchorViewport?.y ?? (originFrame.top + originFrame.height - handleInset - thumbSize / 2);
     const columnShift = targetSize + columnGap;
     const targetFrames = overlay.targets.map((target) => {
       const width = targetSize;
@@ -3853,6 +3853,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     const boardRect = getStageRect();
     const startPointerBoard = getPointWithinBoard(boardRect, event.clientX, event.clientY);
+    const rootRect = refs.root?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    const handleRect = event.currentTarget.getBoundingClientRect();
 
     state.resizeSession = {
       itemId: item.id,
@@ -3860,6 +3862,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
       originItem: { ...item },
       startPointerBoard,
       pointerBoard: startPointerBoard,
+      anchorViewport: {
+        x: handleRect.left - rootRect.left + handleRect.width / 2,
+        y: handleRect.top - rootRect.top + handleRect.height / 2,
+        size: Math.max(handleRect.width, handleRect.height),
+      },
       intent: null,
     };
     syncResizeSessionState(state.resizeSession, state.items);
