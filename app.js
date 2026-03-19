@@ -156,6 +156,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     marqueeSession: null,
     cropAnchorSession: null,
     suppressNextClick: false,
+    singleSelectionUiEnabled: false,
   };
 
   const refs = {
@@ -559,14 +560,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
         : selectionIds.length
           ? selectionIds[selectionIds.length - 1]
           : null;
+
+    if (selectionIds.length !== 1) {
+      state.singleSelectionUiEnabled = false;
+    }
   }
 
   function setSingleSelection(itemId) {
     setSelection(itemId ? [itemId] : [], itemId);
+    state.singleSelectionUiEnabled = Boolean(itemId);
   }
 
   function clearSelection() {
     setSelection([]);
+    state.singleSelectionUiEnabled = false;
   }
 
   function toggleSelection(itemId) {
@@ -577,10 +584,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
         selectionIds.filter((candidateId) => candidateId !== itemId),
         state.selectionAnchorId === itemId ? selectionIds[selectionIds.length - 1] || null : state.selectionAnchorId,
       );
+      state.singleSelectionUiEnabled = false;
       return;
     }
 
     setSelection([...selectionIds, itemId], itemId);
+    state.singleSelectionUiEnabled = false;
+  }
+
+  function shouldShowSingleSelectionUi(itemId = null) {
+    if (!state.singleSelectionUiEnabled) {
+      return false;
+    }
+
+    const selectionIds = getSelectionIds();
+
+    if (selectionIds.length !== 1) {
+      return false;
+    }
+
+    return !itemId || selectionIds[0] === itemId;
   }
 
   function getSelectedItems(items = state.items) {
@@ -2685,6 +2708,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const selectionIds = getSelectionIds();
     const isSingleSelectedTile = Boolean(
       selectedItem &&
+      shouldShowSingleSelectionUi(selectedItem.id) &&
       selectionIds.length === 1 &&
       !state.dragSession &&
       !state.resizeSession &&
@@ -2710,7 +2734,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
           })()
         : baseTileViewportFrame;
 
-    if (selectedItem && !state.dragSession && !state.resizeSession && !state.marqueeSession) {
+    if (
+      selectedItem &&
+      shouldShowSingleSelectionUi(selectedItem.id) &&
+      !state.dragSession &&
+      !state.resizeSession &&
+      !state.marqueeSession
+    ) {
       const session = state.cropAnchorSession?.itemId === selectedItem.id ? state.cropAnchorSession : null;
       const anchorSize = clamp(30 * zoom, 16, 30);
       const anchorDotSize = clamp(anchorSize * 0.27, 5, 8);
@@ -3142,8 +3172,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
           item.rowSpan !== currentItem.rowSpan);
       const isSelected = selectedIdSet.has(item.id);
       const isPrimarySelected = selectionAnchorId === item.id;
+      const showSingleSelectionUi = shouldShowSingleSelectionUi(item.id);
       const shouldLiftTile =
         isPrimarySelected &&
+        showSingleSelectionUi &&
         !hasMultiSelection &&
         !state.dragSession &&
         !state.resizeSession &&
@@ -3179,7 +3211,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         actions.className = 'board-tile__actions';
         const selectedCount = selectedIdSet.size;
 
-        if (selectedCount === 1) {
+        if (selectedCount === 1 && showSingleSelectionUi) {
           cropAnchorTarget = { item, frame };
           const cornerHandle = document.createElement('button');
           cornerHandle.type = 'button';
@@ -3928,6 +3960,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       } else {
         state.items = commitDragMove(state.dragSession, state.items);
         setSelection(state.dragSession.groupItemIds || [state.dragSession.itemId], state.dragSession.itemId);
+        state.singleSelectionUiEnabled = !didMove && (state.dragSession.groupItemIds?.length ?? 1) === 1;
       }
       state.suppressNextClick = Boolean(didMove || shouldToggleSelection);
       state.mobileZoomOutSteps = 0;
