@@ -108,7 +108,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     'Drag empty space to select multiple images. Shift + click adds or removes images.',
     'Hold Shift on a single tile to move the entire stack below it (Where possible).',
     'Use the Link button on a selected image to open its source.',
-    'Use the bottom-right handle to switch between 1 or 2 columns and snap height through the allowed ratio variants.',
+    'Drag the bottom-right handle through the visible snap targets to switch between 1 or 2 columns and the allowed height variants.',
     'Use the bottom slider to zoom the image and drag the floating anchor above to reposition it.',
   ];
   const MOBILE_HUD_HINTS = [
@@ -117,7 +117,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     'Use Multi-select in the HUD to tap tiles into a selection or drag a marquee.',
     'Drag a selected tile to move the current selection together.',
     'Use the floating Stack button while dragging a tile to enable the shift-stack move.',
-    'Use the bottom-right handle to switch width and step through the allowed height variants, then use the bottom slider to zoom its crop.',
+    'Drag the bottom-right handle through the visible snap targets to switch width and step through the allowed height variants, then use the bottom slider to zoom its crop.',
   ];
   const DEFAULT_VISIBLE_COLUMNS = 10;
   const GRID_WIDTH = GRID_SPEC.maxColumns * GRID_SPEC.columnPx;
@@ -1346,31 +1346,80 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
-  function getResizeRowSpanOptions(item, colSpan) {
+  function getResizeRowSpanVariants(item, colSpan) {
     const baseRowSpan = computeRowSpan(item, colSpan);
     const delta = colSpan === 2 ? 2 : 1;
-    return [...new Set([Math.max(1, baseRowSpan - delta), baseRowSpan, baseRowSpan + delta])].sort((left, right) => left - right);
+
+    return [
+      {
+        slot: 'short',
+        rowIndex: 0,
+        rowSpan: Math.max(1, baseRowSpan - delta),
+        projectedRowSpan: baseRowSpan - delta,
+      },
+      {
+        slot: 'base',
+        rowIndex: 1,
+        rowSpan: baseRowSpan,
+        projectedRowSpan: baseRowSpan,
+      },
+      {
+        slot: 'tall',
+        rowIndex: 2,
+        rowSpan: baseRowSpan + delta,
+        projectedRowSpan: baseRowSpan + delta,
+      },
+    ];
   }
 
-  function getNearestAllowedRowSpan(allowedRowSpans, targetRowSpan) {
-    return allowedRowSpans.reduce((closestRowSpan, candidateRowSpan) => {
-      if (closestRowSpan === null) {
-        return candidateRowSpan;
+  function getNearestResizeRowSpanVariant(rowSpanVariants, targetRowSpan) {
+    return rowSpanVariants.reduce((closestVariant, candidateVariant) => {
+      if (!closestVariant) {
+        return candidateVariant;
       }
 
-      const currentDistance = Math.abs(candidateRowSpan - targetRowSpan);
-      const closestDistance = Math.abs(closestRowSpan - targetRowSpan);
+      const currentDistance = Math.abs(candidateVariant.projectedRowSpan - targetRowSpan);
+      const closestDistance = Math.abs(closestVariant.projectedRowSpan - targetRowSpan);
 
       if (currentDistance < closestDistance) {
-        return candidateRowSpan;
+        return candidateVariant;
       }
 
-      if (currentDistance === closestDistance && candidateRowSpan < closestRowSpan) {
-        return candidateRowSpan;
+      if (
+        currentDistance === closestDistance &&
+        candidateVariant.projectedRowSpan < closestVariant.projectedRowSpan
+      ) {
+        return candidateVariant;
       }
 
-      return closestRowSpan;
+      return closestVariant;
     }, null);
+  }
+
+  function getResizeTargetId(colSpan, slot) {
+    return `resize-${colSpan}-${slot}`;
+  }
+
+  function buildResizeOverlayState(resizeSession) {
+    if (!resizeSession?.intent) {
+      return null;
+    }
+
+    const targets = [1, 2].flatMap((colSpan, colIndex) =>
+      getResizeRowSpanVariants(resizeSession.originItem, colSpan).map((variant) => ({
+        id: getResizeTargetId(colSpan, variant.slot),
+        colSpan,
+        rowSpan: variant.rowSpan,
+        slot: variant.slot,
+        colIndex,
+        rowIndex: variant.rowIndex,
+      })),
+    );
+
+    return {
+      activeTargetId: getResizeTargetId(resizeSession.intent.nextColSpan, resizeSession.intent.activeSlot),
+      targets,
+    };
   }
 
   function buildResizedItem(currentItem, nextColSpan, nextRowSpan, items) {
@@ -1500,14 +1549,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const baseRowSpan = computeRowSpan(originItem, nextColSpan);
     const anchorRowSpan = nextColSpan === originItem.colSpan ? originItem.rowSpan : baseRowSpan;
     const targetRowSpan = anchorRowSpan + Math.round(deltaY / GRID_SPEC.rowPx);
-    const allowedRowSpans = getResizeRowSpanOptions(originItem, nextColSpan);
-    const nextRowSpan = getNearestAllowedRowSpan(allowedRowSpans, targetRowSpan);
+    const rowSpanVariants = getResizeRowSpanVariants(originItem, nextColSpan);
+    const nextVariant = getNearestResizeRowSpanVariant(rowSpanVariants, targetRowSpan);
+    const allowedRowSpans = rowSpanVariants.map((variant) => variant.rowSpan);
+    const nextRowSpan = nextVariant?.rowSpan ?? baseRowSpan;
 
     return {
       nextColSpan,
       nextRowSpan,
       allowedRowSpans,
       baseRowSpan,
+      activeSlot: nextVariant?.slot ?? 'base',
+      rowSpanVariants,
     };
   }
 
@@ -1517,6 +1570,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     resizeSession.intent = getResizeIntent(resizeSession, items);
+    resizeSession.overlay = buildResizeOverlayState(resizeSession);
   }
 
   function previewResize(resizeSession, items) {
@@ -2198,8 +2252,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       detail.className = 'board-selection-toolbar__detail';
       detail.textContent =
         primaryItem.sourceKind === 'web' && primaryItem.sourceUrl
-          ? 'Resize from the bottom-right handle, adjust crop below, or open the source link.'
-          : 'Resize from the bottom-right handle and use the crop controls below to reframe the image.';
+          ? 'Resize from the bottom-right handle and snap through the visible targets, adjust crop below, or open the source link.'
+          : 'Resize from the bottom-right handle and snap through the visible targets, then use the crop controls below to reframe the image.';
       summary.append(detail);
     } else {
       const detail = document.createElement('p');
@@ -2467,6 +2521,144 @@ function createMoodboardGrid(container, initialOptions = {}) {
       anchorButton.style.top = `${anchorPoint.top + (session?.visualDy ?? 0) * zoom}px`;
       anchorButton.onpointerdown = (event) => startCropAnchorDrag(event, selectedItem.id);
       refs.cropAnchorLayer.appendChild(anchorButton);
+    }
+
+    if (state.resizeSession?.overlay) {
+      const resizePreviewItem =
+        previewResult?.previewItem && previewResult.previewItem.id === state.resizeSession.itemId
+          ? previewResult.previewItem
+          : state.resizeSession.originItem;
+
+      if (resizePreviewItem) {
+        const safeAreaInsets = getSafeAreaInsets();
+        const overlay = state.resizeSession.overlay;
+        const previewFrame = getViewportFrameRect(getTileFrame(resizePreviewItem), viewportTransform);
+        const thumbSize = state.isMobileMode ? 34 : 28;
+        const singleWidth = state.isMobileMode ? 24 : 22;
+        const doubleWidth = state.isMobileMode ? 40 : 36;
+        const rowPitch = state.isMobileMode ? 38 : 34;
+        const columnGap = state.isMobileMode ? 14 : 12;
+        const tileOffset = state.isMobileMode ? 18 : 14;
+        const handleInset = state.isMobileMode ? 12 : 10;
+        const haloPadding = state.isMobileMode ? 12 : 10;
+        const centerY = previewFrame.top + previewFrame.height - handleInset - thumbSize / 2;
+        const columnCenters = [
+          previewFrame.left + previewFrame.width + tileOffset + singleWidth / 2,
+          previewFrame.left + previewFrame.width + tileOffset + singleWidth + columnGap + doubleWidth / 2,
+        ];
+        const targetFrames = overlay.targets.map((target) => {
+          const width = target.colSpan === 1 ? singleWidth : doubleWidth;
+          const height = clamp(
+            8 + target.rowSpan * (state.isMobileMode ? 5.4 : 4.1),
+            state.isMobileMode ? 18 : 16,
+            state.isMobileMode ? 40 : 32,
+          );
+          const centerX = columnCenters[target.colIndex];
+          const targetCenterY = centerY + (target.rowIndex - 1) * rowPitch;
+
+          return {
+            ...target,
+            width,
+            height,
+            centerX,
+            centerY: targetCenterY,
+            left: centerX - width / 2,
+            top: targetCenterY - height / 2,
+          };
+        });
+        const activeTarget = targetFrames.find((target) => target.id === overlay.activeTargetId) ?? targetFrames[0];
+
+        if (activeTarget) {
+          let minLeft = Math.min(previewFrame.left + previewFrame.width - handleInset, ...targetFrames.map((target) => target.left));
+          let minTop = Math.min(centerY - thumbSize / 2, ...targetFrames.map((target) => target.top));
+          let maxRight = Math.max(activeTarget.centerX + thumbSize / 2, ...targetFrames.map((target) => target.left + target.width));
+          let maxBottom = Math.max(activeTarget.centerY + thumbSize / 2, ...targetFrames.map((target) => target.top + target.height));
+          const minViewportLeft = safeAreaInsets.left + 8;
+          const maxViewportRight = getViewportWidth() - safeAreaInsets.right - 8;
+          const minViewportTop = safeAreaInsets.top + 8;
+          const maxViewportBottom = getViewportHeight() - safeAreaInsets.bottom - 8;
+          let shiftX = 0;
+          let shiftY = 0;
+
+          if (maxRight > maxViewportRight) {
+            shiftX -= maxRight - maxViewportRight;
+          }
+          if (minLeft + shiftX < minViewportLeft) {
+            shiftX += minViewportLeft - (minLeft + shiftX);
+          }
+          if (maxBottom > maxViewportBottom) {
+            shiftY -= maxBottom - maxViewportBottom;
+          }
+          if (minTop + shiftY < minViewportTop) {
+            shiftY += minViewportTop - (minTop + shiftY);
+          }
+
+          const shiftedTargets = targetFrames.map((target) => ({
+            ...target,
+            left: target.left + shiftX,
+            top: target.top + shiftY,
+            centerX: target.centerX + shiftX,
+            centerY: target.centerY + shiftY,
+          }));
+          const shiftedActiveTarget = shiftedTargets.find((target) => target.id === overlay.activeTargetId) ?? shiftedTargets[0];
+          const originX = previewFrame.left + previewFrame.width - handleInset - thumbSize / 2 + shiftX;
+          const originY = centerY + shiftY;
+
+          minLeft = Math.min(originX, ...shiftedTargets.map((target) => target.left));
+          minTop = Math.min(originY - thumbSize / 2, ...shiftedTargets.map((target) => target.top));
+          maxRight = Math.max(
+            shiftedActiveTarget.centerX + thumbSize / 2,
+            ...shiftedTargets.map((target) => target.left + target.width),
+          );
+          maxBottom = Math.max(
+            shiftedActiveTarget.centerY + thumbSize / 2,
+            ...shiftedTargets.map((target) => target.top + target.height),
+          );
+
+          const ladderLeft = minLeft - haloPadding;
+          const ladderTop = minTop - haloPadding;
+          const ladder = document.createElement('div');
+          ladder.className = 'board-resize-ladder';
+          ladder.style.left = `${ladderLeft}px`;
+          ladder.style.top = `${ladderTop}px`;
+          ladder.style.width = `${maxRight - minLeft + haloPadding * 2}px`;
+          ladder.style.height = `${maxBottom - minTop + haloPadding * 2}px`;
+
+          const halo = document.createElement('span');
+          halo.className = 'board-resize-ladder__halo';
+          ladder.appendChild(halo);
+
+          const connector = document.createElement('span');
+          connector.className = 'board-resize-ladder__connector';
+          connector.style.left = `${originX - ladderLeft}px`;
+          connector.style.top = `${originY - ladderTop - 1}px`;
+          connector.style.width = `${Math.max(8, Math.min(...shiftedTargets.map((target) => target.left)) - originX + 8)}px`;
+          ladder.appendChild(connector);
+
+          for (const target of shiftedTargets) {
+            const targetNode = document.createElement('span');
+            targetNode.className = `board-resize-ladder__target${
+              target.id === overlay.activeTargetId ? ' board-resize-ladder__target--active' : ''
+            }`;
+            targetNode.style.left = `${target.left - ladderLeft}px`;
+            targetNode.style.top = `${target.top - ladderTop}px`;
+            targetNode.style.width = `${target.width}px`;
+            targetNode.style.height = `${target.height}px`;
+            ladder.appendChild(targetNode);
+          }
+
+          const thumb = document.createElement('span');
+          thumb.className = 'board-resize-thumb';
+          thumb.style.width = `${thumbSize}px`;
+          thumb.style.height = `${thumbSize}px`;
+          thumb.style.left = `${shiftedActiveTarget.centerX - ladderLeft}px`;
+          thumb.style.top = `${shiftedActiveTarget.centerY - ladderTop}px`;
+          thumb.innerHTML = '<span class="board-resize-thumb__icon" aria-hidden="true"></span>';
+          ladder.appendChild(thumb);
+
+          refs.cropAnchorLayer.appendChild(ladder);
+        }
+      }
     }
 
     if (state.isMobileMode && state.dragSession?.allowShiftStack) {
