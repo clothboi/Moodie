@@ -443,7 +443,7 @@
 
 .moodboard-grid .board-layout-panel__row {
   display: grid;
-  grid-template-columns: 72px 32px minmax(0, 1fr) 32px 52px;
+  grid-template-columns: 56px 32px minmax(0, 1fr) 32px 40px;
   gap: 10px;
   align-items: center;
 }
@@ -1011,7 +1011,7 @@
   }
 
   .moodboard-grid .board-layout-panel__row {
-    grid-template-columns: 1fr 32px minmax(0, 1fr) 32px 52px;
+    grid-template-columns: minmax(52px, auto) 32px minmax(0, 1fr) 32px 40px;
     gap: 8px;
   }
 
