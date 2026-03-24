@@ -84,7 +84,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const CROP_ZOOM_MAX = 2;
   const CROP_ZOOM_STEP = 0.1;
   const ZOOM_MIN = 0.5;
-  const MOBILE_ZOOM_MIN = 0.2;
+  const MOBILE_ZOOM_MIN = 0.05;
   const ZOOM_MAX = 1.5;
   const ZOOM_STEP = 0.05;
   const EXPORT_MAX_EDGE = 4096;
@@ -109,14 +109,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
   ];
   const MOBILE_HUD_HINTS = [
     'Drop files, links, or paste images into the fullscreen board.',
-    'The board auto-fits on touch devices and snaps out if a dragged tile gets too close to the edge.',
     'Use the vertical zoom rail on the right edge to scale the board instead of pinch zooming.',
     'Use Multi-select in the HUD to tap tiles into a selection or drag a marquee.',
     'Drag a selected tile to move the current selection together.',
     'Use the floating Stack button while dragging a tile to enable the shift-stack move.',
     'Drag the bottom-right handle through the visible snap targets to switch width and step through the allowed height variants, then use the bottom slider to zoom its crop.',
   ];
-  const MOBILE_FALLBACK_VISIBLE_COLUMNS = 10;
+  const MOBILE_FALLBACK_VISIBLE_COLUMNS = 20;
   const DEFAULT_VISIBLE_COLUMNS = 20;
   const GRID_WIDTH = GRID_SPEC.maxColumns * GRID_SPEC.columnPx;
   const persistedBoardState = loadBoardState();
@@ -347,7 +346,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       left: 0,
       top: 0,
       width: GRID_SPEC.columnPx * fallbackVisibleColumns,
-      height: Math.min(logicalBoardHeight, GRID_SPEC.rowPx * 8),
+      height: state.isMobileMode ? logicalBoardHeight : Math.min(logicalBoardHeight, GRID_SPEC.rowPx * 8),
     };
   }
 
@@ -3163,13 +3162,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const resizePreviewResult = !state.dragSession && state.resizeSession ? previewResize(state.resizeSession, state.items) : null;
     const previewResult = dragPreviewResult ?? resizePreviewResult;
     const previewItems = dragPreviewResult?.items ?? state.items;
-    const rows = getBoardRows(previewItems);
+    const rows = getBoardRows(state.items);
     const visibleHeight = getViewportHeight();
     const visibleWidth = getViewportWidth();
-    const minScrollableHeight = visibleHeight / Math.max(getCurrentZoom(), ZOOM_MIN) * (1 + VIEWPORT_VERTICAL_BUFFER_FACTOR);
-    const logicalBoardHeight = state.isMobileMode
-      ? Math.max(rows * GRID_SPEC.rowPx, GRID_SPEC.minRows * GRID_SPEC.rowPx)
-      : Math.max(minScrollableHeight, rows * GRID_SPEC.rowPx);
+    let logicalBoardHeight;
+    if (state.isMobileMode) {
+      const roughFitZoom = Math.max(MOBILE_ZOOM_MIN, (visibleWidth - 2 * MOBILE_VIEWPORT_SIDE_PADDING) / GRID_WIDTH);
+      const mobileRows = Math.ceil(visibleHeight / (GRID_SPEC.rowPx * roughFitZoom));
+      logicalBoardHeight = mobileRows * GRID_SPEC.rowPx;
+    } else {
+      const minScrollableHeight = visibleHeight / Math.max(getCurrentZoom(), ZOOM_MIN) * (1 + VIEWPORT_VERTICAL_BUFFER_FACTOR);
+      logicalBoardHeight = Math.max(minScrollableHeight, rows * GRID_SPEC.rowPx);
+    }
     const currentItemsById = new Map(state.items.map((item) => [item.id, item]));
     const clusterBounds = getClusterBounds(previewItems) ?? getFallbackClusterBounds(logicalBoardHeight);
     const selectedItem = state.isMobileMode && state.selectionAnchorId
