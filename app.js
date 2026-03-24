@@ -1,9 +1,7 @@
 import {
   detectMobileMode,
   getMobileViewportTransform,
-  getNextEdgeSnapState,
   getViewportFrameRect,
-  isFrameNearViewportEdge,
 } from './mobileViewport.js';
 import {
   DEFAULT_EXPORT_BACKGROUND_HEX,
@@ -93,8 +91,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const EXPORT_STATUS_DURATION_MS = 2800;
   const EXPORT_EDGE_OPTIONS = [1024, 2048, 3072, 4096];
   const VIEWPORT_VERTICAL_BUFFER_FACTOR = 1;
-  const MOBILE_EDGE_INSET_X = GRID_SPEC.columnPx;
-  const MOBILE_EDGE_INSET_Y = GRID_SPEC.rowPx * 3;
   const MOBILE_VIEWPORT_SIDE_PADDING = 16;
   const MOBILE_VIEWPORT_BOTTOM_PADDING = 16;
   const MOBILE_VIEWPORT_TOP_GAP = 12;
@@ -147,8 +143,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     selectionAnchorId: null,
     isImporting: false,
     viewportTransform: null,
-    mobileZoomOutSteps: 0,
-    isMobileEdgeZoomLocked: false,
+    mobileFitZoom: null,
+    _longPressTimer: null,
     exportState: {
       isExporting: false,
       message: '',
@@ -282,8 +278,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     state.mobileBaseZoom = null;
     state.mobilePanX = 0;
     state.mobilePanY = 0;
-    state.mobileZoomOutSteps = 0;
-    state.isMobileEdgeZoomLocked = false;
     state.dragSession = null;
     state.resizeSession = null;
     state.panSession = null;
@@ -383,7 +377,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
       maxZoom: ZOOM_MAX,
       zoomStep: ZOOM_STEP,
       baseZoom: state.mobileBaseZoom,
-      zoomOutSteps: state.mobileZoomOutSteps,
       sidePadding: MOBILE_VIEWPORT_SIDE_PADDING,
       bottomPadding: MOBILE_VIEWPORT_BOTTOM_PADDING,
       topGap: MOBILE_VIEWPORT_TOP_GAP,
@@ -426,8 +419,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     state.mobileBaseZoom = normalizedZoom;
-    state.mobileZoomOutSteps = 0;
-    state.isMobileEdgeZoomLocked = false;
     state.mobilePanX = 0;
     state.mobilePanY = 0;
     render();
@@ -2465,12 +2456,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
-    const displayedZoom = clamp(state.zoom || state.viewportTransform?.zoom || MOBILE_ZOOM_MIN, MOBILE_ZOOM_MIN, ZOOM_MAX);
-    refs.mobileZoomSlider.min = String(MOBILE_ZOOM_MIN);
+    const fitZoom = state.mobileFitZoom ?? MOBILE_ZOOM_MIN;
+    const displayedZoom = clamp(state.zoom || state.viewportTransform?.zoom || fitZoom, fitZoom, ZOOM_MAX);
+    refs.mobileZoomSlider.min = String(fitZoom);
     refs.mobileZoomSlider.max = String(ZOOM_MAX);
     refs.mobileZoomSlider.step = String(ZOOM_STEP);
     refs.mobileZoomSlider.value = String(displayedZoom);
-    refs.mobileZoomValue.textContent = `${Math.round(displayedZoom * 100)}%`;
+    const pct = fitZoom > 0 ? Math.round((displayedZoom / fitZoom) * 100) : 100;
+    refs.mobileZoomValue.textContent = `${pct}%`;
   }
 
   function renderSelectionToolbar() {
@@ -2856,7 +2849,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const bottomBarGap = 10;
       const horizontalInset = 8;
       const maxBarWidth = Math.min(360, getViewportWidth() - safeAreaInsets.left - safeAreaInsets.right - 16);
-      const minActionBarWidth = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl ? 188 : 96;
+      const hasLink = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl;
+      const minActionBarWidth = state.isMobileMode
+        ? (hasLink ? 280 : 188)
+        : (hasLink ? 188 : 96);
       const actionBarWidth = clamp(tileViewportFrame.width, minActionBarWidth, maxBarWidth);
       const cropBarWidth = clamp(tileViewportFrame.width, 180, maxBarWidth);
       const actionBarHeight = 46;
@@ -2892,7 +2888,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const actionGroup = document.createElement('div');
       actionGroup.className = 'board-tile-selection-bar__actions';
 
-      if (selectedItem.sourceKind === 'web' && selectedItem.sourceUrl) {
+      if (state.isMobileMode) {
+        const selectButton = document.createElement('button');
+        selectButton.type = 'button';
+        selectButton.className = 'board-selection-toolbar__button board-tile-selection-bar__button';
+        selectButton.textContent = 'Select';
+        selectButton.addEventListener('click', () => {
+          state.isMultiSelectMode = true;
+          renderHud();
+          renderBoard();
+        });
+        actionGroup.appendChild(selectButton);
+      }
+
+      if (hasLink) {
         const linkButton = document.createElement('button');
         linkButton.type = 'button';
         linkButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--primary board-tile-selection-bar__button';
@@ -3053,7 +3062,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     if (state.isMobileMode && state.dragSession?.allowShiftStack) {
       const safeAreaInsets = getSafeAreaInsets();
-      const buttonSize = 72;
+      const buttonW = 52;
+      const buttonH = 28;
       const draggedItem = getItemById(state.items, state.dragSession.itemId);
       const previewItem =
         previewResult?.previewItem && previewResult.previewItem.id === state.dragSession.itemId
@@ -3065,18 +3075,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const thumbButton = document.createElement('button');
       const thumbLeft = thumbFrame
         ? clamp(
-            thumbFrame.left + thumbFrame.width / 2 - buttonSize / 2,
+            thumbFrame.left + thumbFrame.width / 2 - buttonW / 2,
             safeAreaInsets.left + 8,
-            getViewportWidth() - safeAreaInsets.right - buttonSize - 8,
+            getViewportWidth() - safeAreaInsets.right - buttonW - 8,
           )
-        : getViewportWidth() - safeAreaInsets.right - buttonSize - 18;
+        : getViewportWidth() / 2 - buttonW / 2;
       const thumbTop = thumbFrame
         ? clamp(
-            thumbFrame.top + thumbFrame.height - buttonSize / 2,
+            thumbFrame.top - buttonH / 2,
             safeAreaInsets.top + 8,
-            getViewportHeight() - safeAreaInsets.bottom - buttonSize - 8,
+            getViewportHeight() - safeAreaInsets.bottom - buttonH - 8,
           )
-        : getViewportHeight() - safeAreaInsets.bottom - buttonSize - 18;
+        : safeAreaInsets.top + 18;
 
       thumbButton.type = 'button';
       thumbButton.className = `board-mobile-shift-thumb${
@@ -3161,7 +3171,21 @@ function createMoodboardGrid(container, initialOptions = {}) {
       ? Math.max(rows * GRID_SPEC.rowPx, GRID_SPEC.minRows * GRID_SPEC.rowPx)
       : Math.max(minScrollableHeight, rows * GRID_SPEC.rowPx);
     const currentItemsById = new Map(state.items.map((item) => [item.id, item]));
-    const focusBounds = getClusterBounds(previewItems) ?? getFallbackClusterBounds(logicalBoardHeight);
+    const clusterBounds = getClusterBounds(previewItems) ?? getFallbackClusterBounds(logicalBoardHeight);
+    const selectedItem = state.isMobileMode && state.selectionAnchorId
+      ? getItemById(previewItems, state.selectionAnchorId)
+      : null;
+    const focusBounds = selectedItem
+      ? (() => { const f = getTileFrame(selectedItem); return { left: f.left, top: f.top, width: f.width, height: f.height }; })()
+      : clusterBounds;
+
+    if (state.isMobileMode) {
+      const savedBaseZoom = state.mobileBaseZoom;
+      state.mobileBaseZoom = null;
+      state.mobileFitZoom = buildMobileViewportState(clusterBounds, logicalBoardHeight).zoom;
+      state.mobileBaseZoom = savedBaseZoom;
+    }
+
     let viewportTransform = state.isMobileMode
       ? buildMobileViewportState(focusBounds, logicalBoardHeight)
       : {
@@ -3169,29 +3193,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
           offsetX: 0,
           offsetY: 0,
         };
-
-    if (state.isMobileMode && state.dragSession && dragPreviewResult?.previewItem) {
-      const previewFrame = getTileFrame(dragPreviewResult.previewItem);
-      const nextEdgeState = getNextEdgeSnapState({
-        hasBreachedEdge: isFrameNearViewportEdge({
-          frame: previewFrame,
-          viewportTransform,
-          edgeInsetX: MOBILE_EDGE_INSET_X,
-          edgeInsetY: MOBILE_EDGE_INSET_Y,
-        }),
-        isLocked: state.isMobileEdgeZoomLocked,
-        zoomOutSteps: state.mobileZoomOutSteps,
-      });
-
-      state.isMobileEdgeZoomLocked = nextEdgeState.isLocked;
-      if (nextEdgeState.zoomOutSteps !== state.mobileZoomOutSteps) {
-        state.mobileZoomOutSteps = nextEdgeState.zoomOutSteps;
-        viewportTransform = buildMobileViewportState(focusBounds, logicalBoardHeight);
-      }
-    } else {
-      state.mobileZoomOutSteps = 0;
-      state.isMobileEdgeZoomLocked = false;
-    }
 
     if (state.isMobileMode) {
       viewportTransform = applyMobilePanToViewport(viewportTransform, logicalBoardHeight);
@@ -3297,8 +3298,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
           const cornerHandle = document.createElement('button');
           cornerHandle.type = 'button';
           cornerHandle.className = 'board-tile__handle board-tile__handle--corner';
-          cornerHandle.setAttribute('aria-label', 'Resize from bottom-right corner');
-          cornerHandle.addEventListener('pointerdown', (event) => startResize(event, item));
+          cornerHandle.setAttribute('aria-label', 'Resize');
+          cornerHandle.addEventListener('pointerdown', (event) => {
+            if (state.isMobileMode) {
+              event.preventDefault();
+              event.stopPropagation();
+              cycleMobileResize(item);
+            } else {
+              startResize(event, item);
+            }
+          });
           actions.appendChild(cornerHandle);
         }
 
@@ -3346,6 +3355,22 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
         if (isMobileMultiSelectActive() && !isItemSelected(item.id)) {
           return;
+        }
+
+        if (state.isMobileMode && !isMobileMultiSelectActive()) {
+          state._longPressTimer = setTimeout(() => {
+            state._longPressTimer = null;
+            if (state.dragSession?.itemId === item.id && !state.dragSession.didMove) {
+              state.dragSession.removeListeners?.();
+              state.dragSession = null;
+              setWidgetInteractionState('is-dragging', false);
+              state.isMultiSelectMode = true;
+              setSingleSelection(item.id);
+              state.suppressNextClick = true;
+              renderHud();
+              renderBoard();
+            }
+          }, 450);
         }
 
         startTileDrag(event, item);
@@ -3401,8 +3426,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function cancelDrag() {
-    state.mobileZoomOutSteps = 0;
-    state.isMobileEdgeZoomLocked = false;
+    if (state._longPressTimer !== null) {
+      clearTimeout(state._longPressTimer);
+      state._longPressTimer = null;
+    }
     state.dragSession = null;
     setWidgetInteractionState('is-dragging', false);
     renderBoard();
@@ -3418,6 +3445,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     state.panSession = null;
     setWidgetInteractionState('is-panning', false);
     refs.shell?.classList.remove('board-shell--panning');
+    renderBoard();
   }
 
   function setLayoutValue(key, nextValue) {
@@ -3689,10 +3717,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       renderBoard();
     };
 
-    const finishSelection = () => {
+    const removeListeners = () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerCancel);
+    };
+
+    const finishSelection = () => {
+      removeListeners();
 
       if (!state.marqueeSession) {
         return;
@@ -3713,6 +3745,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       finishSelection();
     };
 
+    state.marqueeSession.removeListeners = removeListeners;
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
@@ -3848,10 +3881,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       renderBoard();
     };
 
-    const finishDrag = (shouldSave) => {
+    const removeListeners = () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerCancel);
+    };
+
+    const finishDrag = (shouldSave) => {
+      removeListeners();
 
       if (!state.cropAnchorSession || state.cropAnchorSession.itemId !== item.id) {
         return;
@@ -3879,6 +3916,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       finishDrag(false);
     };
 
+    state.cropAnchorSession.removeListeners = removeListeners;
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
@@ -3943,6 +3981,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
       stopPan(cancelEvent.pointerId);
     };
 
+    state.panSession.removeListeners = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+    };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
@@ -4006,6 +4049,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
       stopPan(cancelEvent.pointerId);
     };
 
+    state.panSession.removeListeners = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+    };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
@@ -4061,6 +4109,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const deltaY = state.dragSession.pointerBoard.y - state.dragSession.startPointerBoard.y;
       if (!state.dragSession.didMove && Math.hypot(deltaX, deltaY) >= 4 / getCurrentZoom()) {
         state.dragSession.didMove = true;
+        if (state._longPressTimer !== null) {
+          clearTimeout(state._longPressTimer);
+          state._longPressTimer = null;
+        }
       }
       renderBoard();
     };
@@ -4107,8 +4159,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
         state.singleSelectionUiEnabled = !didMove && (state.dragSession.groupItemIds?.length ?? 1) === 1;
       }
       state.suppressNextClick = Boolean(didMove || shouldToggleSelection);
-      state.mobileZoomOutSteps = 0;
-      state.isMobileEdgeZoomLocked = false;
+      if (state._longPressTimer !== null) {
+        clearTimeout(state._longPressTimer);
+        state._longPressTimer = null;
+      }
       state.dragSession = null;
       setWidgetInteractionState('is-dragging', false);
       if (didMove) {
@@ -4152,11 +4206,33 @@ function createMoodboardGrid(container, initialOptions = {}) {
       }
     };
 
+    state.dragSession.removeListeners = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+  }
+
+  function cycleMobileResize(item) {
+    const fakeSession = { originItem: { ...item } };
+    const overlay = buildResizeOverlayState(fakeSession);
+    if (!overlay) return;
+    const enabledTargets = overlay.targets.filter((t) => !t.disabled);
+    const currentTargetId = getResizeOriginTargetId(item);
+    const currentIndex = enabledTargets.findIndex((t) => t.id === currentTargetId);
+    const nextTarget = enabledTargets[(currentIndex + 1) % enabledTargets.length];
+    if (!nextTarget) return;
+    const result = resizeItemToShape(item.id, nextTarget.colSpan, nextTarget.rowSpan, state.items);
+    state.items = result.items;
+    saveBoardState();
+    render();
   }
 
   function startResize(event, item) {
@@ -4266,6 +4342,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
       }
     };
 
+    state.resizeSession.removeListeners = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('keydown', onKeyDown);
+    };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerCancel);
@@ -4284,8 +4366,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     state.zoom = getDefaultZoom();
     state.isMultiSelectMode = false;
     state.viewportTransform = null;
-    state.mobileZoomOutSteps = 0;
-    state.isMobileEdgeZoomLocked = false;
     setFloatingPanels(false, false);
     state.exportTargetEdge = EXPORT_MAX_EDGE;
     clearSelection();
@@ -5051,6 +5131,15 @@ function createMoodboardGrid(container, initialOptions = {}) {
     options: { ...settings },
     render,
     destroy() {
+      if (state._longPressTimer !== null) {
+        clearTimeout(state._longPressTimer);
+        state._longPressTimer = null;
+      }
+      state.dragSession?.removeListeners?.();
+      state.resizeSession?.removeListeners?.();
+      state.panSession?.removeListeners?.();
+      state.marqueeSession?.removeListeners?.();
+      state.cropAnchorSession?.removeListeners?.();
       clearWidgetInteractionStates();
       refs.shell?.classList.remove('board-shell--panning');
       for (const removeListener of managedListeners.splice(0)) {
