@@ -233,11 +233,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function getViewportWidth() {
-    return refs.shell?.clientWidth ?? refs.host?.clientWidth ?? window.innerWidth;
+    return refs.shell?.clientWidth || refs.host?.clientWidth || window.innerWidth;
   }
 
   function getViewportHeight() {
-    return refs.shell?.clientHeight ?? refs.host?.clientHeight ?? window.innerHeight;
+    return refs.shell?.clientHeight || refs.host?.clientHeight || window.innerHeight;
   }
 
   function getSafeAreaInsets() {
@@ -5110,6 +5110,21 @@ function createMoodboardGrid(container, initialOptions = {}) {
       state.zoom = clampZoom(state.zoom);
       render();
     });
+
+    if (typeof ResizeObserver !== 'undefined' && refs.shell) {
+      const shellResizeObserver = new ResizeObserver(() => {
+        const h = refs.shell.clientHeight;
+        // Guard against auto-height infinite loops: only re-render when the shell
+        // height looks like an externally-set viewport size (not content-driven growth).
+        if (h > 0 && h <= window.innerHeight + 200) {
+          updateMobileMode();
+          state.zoom = clampZoom(state.zoom);
+          render();
+        }
+      });
+      shellResizeObserver.observe(refs.shell);
+      managedListeners.push(() => shellResizeObserver.disconnect());
+    }
 
     addManagedEventListener(document, 'pointerdown', (event) => {
       if (!hasOpenFloatingPanel() || isFloatingUiTarget(event.target) || isTargetInsideWidget(event.target)) {
