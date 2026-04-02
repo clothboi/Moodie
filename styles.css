@@ -269,6 +269,51 @@
   display: none;
 }
 
+.moodboard-grid .board-mobile-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+  background:
+    radial-gradient(circle at top, rgba(101, 113, 126, 0.14), transparent 32%),
+    linear-gradient(180deg, #2a2d31 0%, #1b1d20 100%);
+}
+
+.moodboard-grid .board-mobile-gate[hidden] {
+  display: none;
+}
+
+.moodboard-grid .board-mobile-gate__content {
+  max-width: 300px;
+}
+
+.moodboard-grid .board-mobile-gate__eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(125, 193, 255, 0.85);
+}
+
+.moodboard-grid .board-mobile-gate__title {
+  margin: 0 0 16px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #eef2f5;
+}
+
+.moodboard-grid .board-mobile-gate__message {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: rgba(238, 242, 245, 0.5);
+}
+
 .moodboard-grid .board-mobile-zoom__value {
   margin: 0;
   color: var(--ui-text-strong);

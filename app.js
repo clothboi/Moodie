@@ -2634,6 +2634,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderHintsPanel();
     renderMobileZoomRail();
     refs.root?.classList.toggle('is-mobile-mode', state.isMobileMode);
+    if (refs.mobileGate) refs.mobileGate.hidden = !state.isMobileMode;
 
     if (refs.utilityToggle) {
       refs.utilityToggle.setAttribute('aria-expanded', String(state.isUtilityPanelOpen));
@@ -4773,6 +4774,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
         </div>
         <div class="board-selection-toolbar" data-role="selection-toolbar" hidden></div>
         <div class="board-toast" data-role="toast" hidden></div>
+        <div class="board-mobile-gate" data-role="mobile-gate" hidden>
+          <div class="board-mobile-gate__content">
+            <p class="board-mobile-gate__eyebrow">Desktop only for now</p>
+            <h2 class="board-mobile-gate__title">Moodboard Grid</h2>
+            <p class="board-mobile-gate__message">Mobile support is coming soon. For the full experience, open this on a desktop or laptop.</p>
+          </div>
+        </div>
         </main>
       </div>
     `;
@@ -4833,6 +4841,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.mobileZoomValue = getRoleRef('mobile-zoom-value');
     refs.selectionToolbar = getRoleRef('selection-toolbar');
     refs.toast = getRoleRef('toast');
+    refs.mobileGate = getRoleRef('mobile-gate');
 
     if (activeWidgetId === null) {
       setActiveWidget();
