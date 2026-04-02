@@ -1194,6 +1194,11 @@
   user-select: none;
 }
 
+.moodboard-grid.is-dragging .board-shell,
+.moodboard-grid.is-resizing .board-shell {
+  overflow: hidden;
+}
+
 .moodboard-grid.is-resizing {
   user-select: none;
 }
