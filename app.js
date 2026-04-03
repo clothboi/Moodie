@@ -2848,6 +2848,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const safeAreaInsets = getSafeAreaInsets();
       const topBarGap = 18;
       const bottomBarGap = 10;
+      const horizontalInset = 8;
       const actionBarWidth = tileViewportFrame.width;
       const cropBarWidth = tileViewportFrame.width;
       const actionBarHeight = 46;
