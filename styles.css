@@ -1655,6 +1655,10 @@
   gap: 6px;
 }
 
+.moodboard-grid .board-export-panel__meta[hidden] {
+  display: none;
+}
+
 .moodboard-grid .board-export-panel__actions {
   display: flex;
   justify-content: flex-end;
