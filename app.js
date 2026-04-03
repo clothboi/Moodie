@@ -2849,6 +2849,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const topBarGap = 18;
       const bottomBarGap = 10;
       const horizontalInset = 8;
+      const hasLink = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl;
       const actionBarWidth = tileViewportFrame.width;
       const cropBarWidth = tileViewportFrame.width;
       const actionBarHeight = 46;
@@ -5139,8 +5140,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
     });
 
     addManagedEventListener(window, 'keydown', (event) => {
+      if (!isWidgetActive()) return;
       if (event.key === 'Escape' && hasOpenFloatingPanel()) {
         closeFloatingPanels();
+      }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !isInteractiveTarget(event.target)) {
+        const selectionIds = getSelectionIds();
+        if (selectionIds.length > 0) {
+          event.preventDefault();
+          deleteSelection();
+        }
       }
     });
   }
