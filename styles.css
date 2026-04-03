@@ -664,7 +664,7 @@
     var(--grid-column-size) var(--grid-row-size);
   background-position:
     calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2)),
-    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - (var(--grid-row-size) / 2));
+    0.5px calc(0.5px - (var(--grid-row-size) / 2));
   pointer-events: none;
 }
 
