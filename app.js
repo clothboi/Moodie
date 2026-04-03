@@ -1520,23 +1520,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return `resize-${colSpan}-${slot}`;
   }
 
-  function buildResizeOverlayState(resizeSession) {
+  function buildResizeOverlayState(resizeSession, items = []) {
     if (!resizeSession?.originItem) {
       return null;
     }
 
-    const targets = [1, 2].flatMap((colSpan, colIndex) =>
-      getResizeRowSpanVariants(resizeSession.originItem, colSpan).map((variant) => ({
-        id: getResizeTargetId(colSpan, variant.slot),
-        colSpan,
-        rowSpan: variant.rowSpan,
-        slot: variant.slot,
-        colIndex,
-        rowIndex: variant.rowIndex,
-        disabled: resizeSession.originItem.colStart + colSpan > GRID_SPEC.maxColumns,
-      })),
+    const originItem = resizeSession.originItem;
+    const targets = [1, 2].flatMap((colSpan) =>
+      getResizeRowSpanVariants(originItem, colSpan)
+        .filter((variant) =>
+          rectFits({ colStart: originItem.colStart, rowStart: originItem.rowStart, colSpan, rowSpan: variant.rowSpan }, items, originItem.id),
+        )
+        .map((variant) => ({
+          id: getResizeTargetId(colSpan, variant.slot),
+          colSpan,
+          rowSpan: variant.rowSpan,
+          slot: variant.slot,
+          rowIndex: variant.rowIndex,
+        })),
     );
-    const originTargetId = getResizeOriginTargetId(resizeSession.originItem);
+    const originTargetId = getResizeOriginTargetId(originItem);
 
     return {
       activeTargetId: resizeSession.intent?.activeTargetId ?? originTargetId,
@@ -1556,8 +1559,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return null;
     }
 
-    const safeAreaInsets = getSafeAreaInsets();
-    const originFrame = getViewportFrameRect(getTileFrame(resizeSession.originItem), viewportTransform);
+    const originItem = resizeSession.originItem;
+    const zoom = viewportTransform.zoom;
+    const thumbBaseSize = state.isMobileMode ? 34 : 28;
+    const thumbSize = resizeSession.anchorViewport?.size ?? thumbBaseSize * zoom;
+    const handleInset = (state.isMobileMode ? 12 : 10) * zoom;
+    const originFrame = getViewportFrameRect(getTileFrame(originItem), viewportTransform);
+    const originX = resizeSession.anchorViewport?.x ?? (originFrame.left + originFrame.width - handleInset - thumbSize / 2);
+    const originY = resizeSession.anchorViewport?.y ?? (originFrame.top + originFrame.height - handleInset - thumbSize / 2);
     const pointerViewport = resizeSession.pointerBoard
       ? getViewportFrameRect(
           {
@@ -1580,88 +1589,41 @@ function createMoodboardGrid(container, initialOptions = {}) {
           viewportTransform,
         )
       : null;
-    const zoom = viewportTransform.zoom;
-    const thumbBaseSize = state.isMobileMode ? 34 : 28;
-    const thumbSize = resizeSession.anchorViewport?.size ?? thumbBaseSize * zoom;
-    const targetSize = thumbSize;
-    const rowPitch = (state.isMobileMode ? 38 : 34) * zoom;
-    const columnGap = (state.isMobileMode ? 14 : 12) * zoom;
-    const handleInset = (state.isMobileMode ? 12 : 10) * zoom;
-    const haloPadding = (state.isMobileMode ? 12 : 10) * zoom;
-    const originX = resizeSession.anchorViewport?.x ?? (originFrame.left + originFrame.width - handleInset - thumbSize / 2);
-    const originY = resizeSession.anchorViewport?.y ?? (originFrame.top + originFrame.height - handleInset - thumbSize / 2);
-    const columnShift = targetSize + columnGap;
     const targetFrames = overlay.targets.map((target) => {
-      const width = targetSize;
-      const height = targetSize;
-      const displayColIndex = target.colSpan === 1 ? 0 : 1;
-      const displayRowIndex = target.rowIndex;
-      const centerX = originX + displayColIndex * columnShift;
-      const centerY = originY + (displayRowIndex - 1) * rowPitch;
+      const ghostLogical = getTileFrame({ colStart: originItem.colStart, rowStart: originItem.rowStart, colSpan: target.colSpan, rowSpan: target.rowSpan });
+      const ghostViewport = getViewportFrameRect(ghostLogical, viewportTransform);
+      const centerX = ghostViewport.left + ghostViewport.width - handleInset - thumbSize / 2;
+      const centerY = ghostViewport.top + ghostViewport.height - handleInset - thumbSize / 2;
 
       return {
         ...target,
-        width,
-        height,
+        left: ghostViewport.left,
+        top: ghostViewport.top,
+        width: ghostViewport.width,
+        height: ghostViewport.height,
         centerX,
         centerY,
-        displayColIndex,
-        displayRowIndex,
-        left: centerX - width / 2,
-        top: centerY - height / 2,
       };
     });
-
-    let minLeft = Math.min(originX - thumbSize / 2, ...targetFrames.map((target) => target.left));
-    let minTop = Math.min(originY - thumbSize / 2, ...targetFrames.map((target) => target.top));
-    let maxRight = Math.max(originX + thumbSize / 2, ...targetFrames.map((target) => target.left + target.width));
-    let maxBottom = Math.max(originY + thumbSize / 2, ...targetFrames.map((target) => target.top + target.height));
-    const minViewportLeft = safeAreaInsets.left + 8;
-    const maxViewportRight = getViewportWidth() - safeAreaInsets.right - 8;
-    const minViewportTop = safeAreaInsets.top + 8;
-    const maxViewportBottom = getViewportHeight() - safeAreaInsets.bottom - 8;
-    let shiftX = 0;
-    let shiftY = 0;
-
-    if (maxRight > maxViewportRight) {
-      shiftX -= maxRight - maxViewportRight;
-    }
-    if (minLeft + shiftX < minViewportLeft) {
-      shiftX += minViewportLeft - (minLeft + shiftX);
-    }
-    if (maxBottom > maxViewportBottom) {
-      shiftY -= maxBottom - maxViewportBottom;
-    }
-    if (minTop + shiftY < minViewportTop) {
-      shiftY += minViewportTop - (minTop + shiftY);
-    }
-
-    const shiftedTargets = targetFrames.map((target) => ({
-      ...target,
-      left: target.left + shiftX,
-      top: target.top + shiftY,
-      centerX: target.centerX + shiftX,
-      centerY: target.centerY + shiftY,
-    }));
 
     return {
       pointerViewport: pointerViewport
         ? {
-            x: pointerViewport.left + shiftX,
-            y: pointerViewport.top + shiftY,
+            x: pointerViewport.left,
+            y: pointerViewport.top,
           }
         : null,
       startPointerViewport: startPointerViewport
         ? {
-            x: startPointerViewport.left + shiftX,
-            y: startPointerViewport.top + shiftY,
+            x: startPointerViewport.left,
+            y: startPointerViewport.top,
           }
         : null,
-      targetFrames: shiftedTargets,
-      originX: originX + shiftX,
-      originY: originY + shiftY,
+      targetFrames,
+      originX,
+      originY,
       thumbSize,
-      haloPadding,
+      haloPadding: 0,
       originTargetId: overlay.originTargetId,
     };
   }
@@ -1769,15 +1731,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return closeGapsForRemovedItems(removedItems, items.filter((item) => !deleteIds.has(item.id)));
   }
 
-  function getResizeIntent(resizeSession) {
+  function getResizeIntent(resizeSession, items = []) {
     if (!resizeSession.pointerBoard) {
       return null;
     }
 
     const originItem = resizeSession.originItem;
-    const overlay = buildResizeOverlayState(resizeSession);
+    const overlay = buildResizeOverlayState(resizeSession, items);
     const layout = getResizeOverlayLayout({ ...resizeSession, overlay });
-    const snapInset = state.isMobileMode ? 12 : 10;
     const movementThreshold = state.isMobileMode ? 10 : 8;
     const hasClearedOriginDeadzone =
       Boolean(layout?.pointerViewport && layout?.startPointerViewport) &&
@@ -1786,23 +1747,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
         layout.pointerViewport.y - layout.startPointerViewport.y,
       ) >= movementThreshold;
     const hoveredTarget = hasClearedOriginDeadzone
-      ? layout?.targetFrames
-          .filter(
-            (target) =>
-              !target.disabled &&
-              layout.pointerViewport.x >= target.left - snapInset &&
-              layout.pointerViewport.x <= target.left + target.width + snapInset &&
-              layout.pointerViewport.y >= target.top - snapInset &&
-              layout.pointerViewport.y <= target.top + target.height + snapInset,
-          )
-          .sort(
-            (left, right) =>
-              Math.hypot(layout.pointerViewport.x - left.centerX, layout.pointerViewport.y - left.centerY) -
-              Math.hypot(layout.pointerViewport.x - right.centerX, layout.pointerViewport.y - right.centerY),
-          )[0] ?? null
+      ? overlay.targets
+          .filter((target) => {
+            const ghostLogical = getTileFrame({ colStart: originItem.colStart, rowStart: originItem.rowStart, colSpan: target.colSpan, rowSpan: target.rowSpan });
+
+            return (
+              resizeSession.pointerBoard.x >= ghostLogical.left &&
+              resizeSession.pointerBoard.x <= ghostLogical.left + ghostLogical.width &&
+              resizeSession.pointerBoard.y >= ghostLogical.top &&
+              resizeSession.pointerBoard.y <= ghostLogical.top + ghostLogical.height
+            );
+          })
+          .sort((a, b) => a.colSpan * a.rowSpan - b.colSpan * b.rowSpan)[0] ?? null
       : null;
-    const originTarget =
-      layout?.targetFrames.find((target) => target.id === layout.originTargetId) ?? layout?.targetFrames[0] ?? null;
+    const originTarget = overlay.targets.find((target) => target.id === overlay.originTargetId) ?? overlay.targets[0] ?? null;
     const selectedTarget = hoveredTarget ?? originTarget;
     const nextColSpan = selectedTarget?.colSpan ?? originItem.colSpan;
     const rowSpanVariants = getResizeRowSpanVariants(originItem, nextColSpan);
@@ -1832,7 +1790,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     resizeSession.intent = getResizeIntent(resizeSession, items);
-    resizeSession.overlay = buildResizeOverlayState(resizeSession);
+    resizeSession.overlay = buildResizeOverlayState(resizeSession, items);
     resizeSession.overlayLayout = resizeSession.intent?.overlayLayout ?? getResizeOverlayLayout(resizeSession);
   }
 
@@ -2705,28 +2663,22 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function renderPlaceholder(previewResult) {
-    if (state.resizeSession && previewResult?.previewItem) {
+    if (state.resizeSession?.overlay) {
       const originItem = state.resizeSession.originItem;
-      const previewItem = previewResult.previewItem;
-      const changed =
-        previewItem.colStart !== originItem.colStart ||
-        previewItem.rowStart !== originItem.rowStart ||
-        previewItem.colSpan !== originItem.colSpan ||
-        previewItem.rowSpan !== originItem.rowSpan;
+      const overlay = state.resizeSession.overlay;
 
-      if (!changed) {
-        return;
+      for (const target of overlay.targets) {
+        const frame = getTileFrame({ colStart: originItem.colStart, rowStart: originItem.rowStart, colSpan: target.colSpan, rowSpan: target.rowSpan });
+        const ghost = document.createElement('div');
+
+        ghost.className = `board-resize-ghost${target.id === overlay.activeTargetId ? ' board-resize-ghost--active' : ''}`;
+        ghost.style.left = `${frame.left}px`;
+        ghost.style.top = `${frame.top}px`;
+        ghost.style.width = `${frame.width}px`;
+        ghost.style.height = `${frame.height}px`;
+        refs.stage.appendChild(ghost);
       }
 
-      const frame = getTileFrame(previewItem);
-      const placeholder = document.createElement('div');
-
-      placeholder.className = 'board-placeholder board-placeholder--resize-ghost';
-      placeholder.style.left = `${frame.left}px`;
-      placeholder.style.top = `${frame.top}px`;
-      placeholder.style.width = `${frame.width}px`;
-      placeholder.style.height = `${frame.height}px`;
-      refs.stage.appendChild(placeholder);
       return;
     }
 
@@ -2985,99 +2937,40 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     if (state.resizeSession?.overlay) {
-      const resizePreviewItem =
-        previewResult?.previewItem && previewResult.previewItem.id === state.resizeSession.itemId
-          ? previewResult.previewItem
-          : state.resizeSession.originItem;
+      const overlay = state.resizeSession.overlay;
+      const layout = state.resizeSession.overlayLayout ?? getResizeOverlayLayout(state.resizeSession, viewportTransform);
+      const targetFrames = layout?.targetFrames ?? [];
+      const activeTarget = targetFrames.find((target) => target.id === overlay.activeTargetId) ?? targetFrames[0];
 
-      if (resizePreviewItem) {
-        const overlay = state.resizeSession.overlay;
-        const layout = state.resizeSession.overlayLayout ?? getResizeOverlayLayout(state.resizeSession, viewportTransform);
-        const targetFrames = layout?.targetFrames ?? [];
-        const activeTarget = targetFrames.find((target) => target.id === overlay.activeTargetId) ?? targetFrames[0];
+      if (layout) {
+        const { originX, originY, thumbSize } = layout;
+        const pointerX = layout.pointerViewport?.x ?? originX;
+        const pointerY = layout.pointerViewport?.y ?? originY;
+        const grabOffset = state.resizeSession.grabOffsetViewport ?? { x: 0, y: 0 };
+        const isSnapped = Boolean(activeTarget && state.resizeSession.intent?.isHoveringTarget);
+        const desiredThumbX = isSnapped ? activeTarget.centerX : pointerX - grabOffset.x;
+        const desiredThumbY = isSnapped ? activeTarget.centerY : pointerY - grabOffset.y;
+        const previousThumb = state.resizeSession.visualThumbViewport ?? { x: originX, y: originY };
+        const smoothing = isSnapped ? 1 : 0.38;
+        const nextThumbX = previousThumb.x + (desiredThumbX - previousThumb.x) * smoothing;
+        const nextThumbY = previousThumb.y + (desiredThumbY - previousThumb.y) * smoothing;
 
-        if (activeTarget && layout) {
-          const { originX, originY, thumbSize, haloPadding } = layout;
-          const pointerX = layout.pointerViewport?.x ?? originX;
-          const pointerY = layout.pointerViewport?.y ?? originY;
-          const grabOffset = state.resizeSession.grabOffsetViewport ?? { x: 0, y: 0 };
-          let minLeft = Math.min(originX - thumbSize / 2, ...targetFrames.map((target) => target.left));
-          let minTop = Math.min(originY - thumbSize / 2, ...targetFrames.map((target) => target.top));
-          let maxRight = Math.max(activeTarget.centerX + thumbSize / 2, ...targetFrames.map((target) => target.left + target.width));
-          let maxBottom = Math.max(activeTarget.centerY + thumbSize / 2, ...targetFrames.map((target) => target.top + target.height));
-          const shiftedTargets = targetFrames;
-          const shiftedActiveTarget = activeTarget;
+        state.resizeSession.visualThumbViewport = { x: nextThumbX, y: nextThumbY };
 
-          const ladderLeft = minLeft - haloPadding;
-          const ladderTop = minTop - haloPadding;
-          const ladder = document.createElement('div');
-          ladder.className = 'board-resize-ladder';
-          ladder.style.left = `${ladderLeft}px`;
-          ladder.style.top = `${ladderTop}px`;
-          ladder.style.width = `${maxRight - minLeft + haloPadding * 2}px`;
-          ladder.style.height = `${maxBottom - minTop + haloPadding * 2}px`;
-          ladder.style.setProperty('--resize-control-radius', `${10 * viewportTransform.zoom}px`);
-          ladder.style.setProperty('--resize-panel-radius', `${(10 * viewportTransform.zoom) + (4 * viewportTransform.zoom)}px`);
-          ladder.style.setProperty('--resize-icon-main-size', `${9 * viewportTransform.zoom}px`);
-          ladder.style.setProperty('--resize-icon-main-offset', `${7 * viewportTransform.zoom}px`);
-          ladder.style.setProperty('--resize-icon-inner-size', `${5 * viewportTransform.zoom}px`);
-          ladder.style.setProperty('--resize-icon-inner-offset', `${12 * viewportTransform.zoom}px`);
-          ladder.style.setProperty('--resize-icon-stroke', `${2 * viewportTransform.zoom}px`);
-
-          const snapInset = state.isMobileMode ? 12 : 10;
-          const isPointerOverActiveTarget =
-            !shiftedActiveTarget.disabled &&
-            pointerX >= shiftedActiveTarget.left - snapInset &&
-            pointerX <= shiftedActiveTarget.left + shiftedActiveTarget.width + snapInset &&
-            pointerY >= shiftedActiveTarget.top - snapInset &&
-            pointerY <= shiftedActiveTarget.top + shiftedActiveTarget.height + snapInset;
-          const desiredThumbX = isPointerOverActiveTarget ? shiftedActiveTarget.centerX : pointerX - grabOffset.x;
-          const desiredThumbY = isPointerOverActiveTarget ? shiftedActiveTarget.centerY : pointerY - grabOffset.y;
-          const previousThumb = state.resizeSession.visualThumbViewport ?? { x: originX, y: originY };
-          const smoothing = isPointerOverActiveTarget ? 1 : 0.38;
-          const nextThumbX = previousThumb.x + (desiredThumbX - previousThumb.x) * smoothing;
-          const nextThumbY = previousThumb.y + (desiredThumbY - previousThumb.y) * smoothing;
-          const visualThumb = {
-            x: nextThumbX,
-            y: nextThumbY,
-          };
-
-          state.resizeSession.visualThumbViewport = visualThumb;
-
-          const halo = document.createElement('span');
-          halo.className = 'board-resize-ladder__halo';
-          ladder.appendChild(halo);
-
-          const connector = document.createElement('span');
-          connector.className = 'board-resize-ladder__connector';
-          connector.style.left = `${originX - ladderLeft}px`;
-          connector.style.top = `${originY - ladderTop - 1}px`;
-          connector.style.width = `${Math.max(8, Math.min(...shiftedTargets.map((target) => target.left)) - originX + 8)}px`;
-          ladder.appendChild(connector);
-
-          for (const target of shiftedTargets) {
-            const targetNode = document.createElement('span');
-            targetNode.className = `board-resize-ladder__target${
-              target.id === overlay.activeTargetId ? ' board-resize-ladder__target--active' : ''
-            }${target.disabled ? ' board-resize-ladder__target--disabled' : ''}`;
-            targetNode.style.left = `${target.left - ladderLeft}px`;
-            targetNode.style.top = `${target.top - ladderTop}px`;
-            targetNode.style.width = `${target.width}px`;
-            targetNode.style.height = `${target.height}px`;
-            ladder.appendChild(targetNode);
-          }
-
-          const thumb = document.createElement('span');
-          thumb.className = `board-resize-thumb${isPointerOverActiveTarget ? ' board-resize-thumb--snapped' : ''}`;
-          thumb.style.width = `${thumbSize}px`;
-          thumb.style.height = `${thumbSize}px`;
-          thumb.style.left = `${visualThumb.x - ladderLeft}px`;
-          thumb.style.top = `${visualThumb.y - ladderTop}px`;
-          thumb.innerHTML = '<span class="board-resize-thumb__icon" aria-hidden="true"></span>';
-          ladder.appendChild(thumb);
-
-          refs.cropAnchorLayer.appendChild(ladder);
-        }
+        const thumb = document.createElement('span');
+        thumb.className = `board-resize-thumb${isSnapped ? ' board-resize-thumb--snapped' : ''}`;
+        thumb.style.width = `${thumbSize}px`;
+        thumb.style.height = `${thumbSize}px`;
+        thumb.style.left = `${nextThumbX}px`;
+        thumb.style.top = `${nextThumbY}px`;
+        thumb.style.setProperty('--resize-control-radius', `${10 * viewportTransform.zoom}px`);
+        thumb.style.setProperty('--resize-icon-main-size', `${9 * viewportTransform.zoom}px`);
+        thumb.style.setProperty('--resize-icon-main-offset', `${7 * viewportTransform.zoom}px`);
+        thumb.style.setProperty('--resize-icon-inner-size', `${5 * viewportTransform.zoom}px`);
+        thumb.style.setProperty('--resize-icon-inner-offset', `${12 * viewportTransform.zoom}px`);
+        thumb.style.setProperty('--resize-icon-stroke', `${2 * viewportTransform.zoom}px`);
+        thumb.innerHTML = '<span class="board-resize-thumb__icon" aria-hidden="true"></span>';
+        refs.cropAnchorLayer.appendChild(thumb);
       }
     }
 
@@ -4251,12 +4144,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   function cycleMobileResize(item) {
     const fakeSession = { originItem: { ...item } };
-    const overlay = buildResizeOverlayState(fakeSession);
+    const overlay = buildResizeOverlayState(fakeSession, state.items);
     if (!overlay) return;
-    const enabledTargets = overlay.targets.filter((t) => !t.disabled);
     const currentTargetId = getResizeOriginTargetId(item);
-    const currentIndex = enabledTargets.findIndex((t) => t.id === currentTargetId);
-    const nextTarget = enabledTargets[(currentIndex + 1) % enabledTargets.length];
+    const currentIndex = overlay.targets.findIndex((t) => t.id === currentTargetId);
+    const nextTarget = overlay.targets[(currentIndex + 1) % overlay.targets.length];
     if (!nextTarget) return;
     const result = resizeItemToShape(item.id, nextTarget.colSpan, nextTarget.rowSpan, state.items);
     state.items = result.items;
