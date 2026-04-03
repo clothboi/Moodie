@@ -661,10 +661,10 @@
     );
   background-size:
     var(--grid-column-size) calc(var(--grid-row-size) * 3),
-    var(--grid-column-size) var(--grid-row-size);
+    var(--grid-column-size) calc(var(--grid-row-size) * 3);
   background-position:
     calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2)),
-    0.5px calc(0.5px - (var(--grid-row-size) / 2));
+    0.5px 0.5px;
   pointer-events: none;
 }
 
