@@ -130,6 +130,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     activeUtilityTab: 'layout',
     isExportPanelOpen: false,
     exportFormat: 'png',
+    exportPdfRoundedCorners: true,
     exportTargetEdge: EXPORT_MAX_EDGE,
     exportIncludeBackground: true,
     exportBackgroundHex: persistedBoardState.layout.exportBackgroundHex,
@@ -2378,6 +2379,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       : 'No export available';
     if (refs.exportOutputLabel) refs.exportOutputLabel.textContent = isPdf ? 'Output PDF' : 'Output PNG';
     if (refs.exportSizeRow) refs.exportSizeRow.hidden = isPdf;
+    if (refs.exportPdfOptions) {
+      refs.exportPdfOptions.hidden = !isPdf;
+      refs.exportPdfOptions.querySelectorAll('[data-export-corners]').forEach((button) => {
+        const selected = (button.dataset.exportCorners === 'rounded') === state.exportPdfRoundedCorners;
+        button.classList.toggle('board-export-panel__size-button--active', selected);
+        button.setAttribute('aria-pressed', String(selected));
+      });
+    }
     if (refs.exportPanelTitle) refs.exportPanelTitle.textContent = isPdf ? 'PDF output' : 'PNG output';
     if (refs.exportConfirm) refs.exportConfirm.textContent = isPdf ? 'Export PDF' : 'Export PNG';
     refs.exportPreviewFrame.dataset.transparent = String(!state.exportIncludeBackground);
@@ -3607,7 +3616,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         throw new Error('Nothing to export');
       }
 
-      const { PDFDocument, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } =
+      const { PDFDocument, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo, curveTo, closePath, clip, endPath } =
         await import('https://esm.sh/pdf-lib');
 
       const PX_TO_PT = 0.75;
@@ -3680,16 +3689,39 @@ function createMoodboardGrid(container, initialOptions = {}) {
         const imgW = geometry.width * PX_TO_PT;
         const imgH = geometry.height * PX_TO_PT;
 
-        page.pushOperators(
-          pushGraphicsState(),
-          moveTo(x, y),
-          lineTo(x + w, y),
-          lineTo(x + w, y + h),
-          lineTo(x, y + h),
-          closePath(),
-          clip(),
-          endPath(),
-        );
+        const r = state.exportPdfRoundedCorners ? getRadiusPx() * PX_TO_PT : 0;
+        const k = 0.5523;
+        const clipOps = r > 0
+          ? [
+              pushGraphicsState(),
+              // bottom-left → bottom-right (bottom edge)
+              moveTo(x + r, y),
+              lineTo(x + w - r, y),
+              curveTo(x + w - r + k * r, y, x + w, y + k * r, x + w, y + r),
+              // bottom-right → top-right (right edge)
+              lineTo(x + w, y + h - r),
+              curveTo(x + w, y + h - r + k * r, x + w - r + k * r, y + h, x + w - r, y + h),
+              // top-right → top-left (top edge)
+              lineTo(x + r, y + h),
+              curveTo(x + r - k * r, y + h, x, y + h - r + k * r, x, y + h - r),
+              // top-left → bottom-left (left edge)
+              lineTo(x, y + r),
+              curveTo(x, y + r - k * r, x + r - k * r, y, x + r, y),
+              closePath(),
+              clip(),
+              endPath(),
+            ]
+          : [
+              pushGraphicsState(),
+              moveTo(x, y),
+              lineTo(x + w, y),
+              lineTo(x + w, y + h),
+              lineTo(x, y + h),
+              closePath(),
+              clip(),
+              endPath(),
+            ];
+        page.pushOperators(...clipOps);
         page.drawImage(pdfImage, { x: imgX, y: imgY, width: imgW, height: imgH });
         page.pushOperators(popGraphicsState());
       }
@@ -4827,7 +4859,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
               >Transparent</button>
             </div>
           </div>
-          <div class="board-export-panel__meta">
+          <div class="board-export-panel__meta" hidden>
             <span class="board-export-panel__label">Longest edge</span>
             <div class="board-export-panel__sizes" data-role="export-size-options">
               ${EXPORT_EDGE_OPTIONS.map(
@@ -4839,6 +4871,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
                   >${edge / 1024}K</button>
                 `,
               ).join('')}
+            </div>
+          </div>
+          <div class="board-export-panel__meta" data-role="export-pdf-options" hidden>
+            <span class="board-export-panel__label">Corners</span>
+            <div class="board-export-panel__sizes">
+              <button type="button" class="board-export-panel__size-button board-export-panel__size-button--active" data-export-corners="rounded" aria-pressed="true">Rounded</button>
+              <button type="button" class="board-export-panel__size-button" data-export-corners="square" aria-pressed="false">Square</button>
             </div>
           </div>
           <div class="board-export-panel__meta" data-role="export-size-row">
@@ -4895,6 +4934,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportOutputSize = getRoleRef('export-output-size');
     refs.exportOutputLabel = getRoleRef('export-output-label');
     refs.exportSizeRow = getRoleRef('export-size-row');
+    refs.exportPdfOptions = getRoleRef('export-pdf-options');
     refs.exportSizeOptions = getRoleRef('export-size-options');
     refs.exportFormatOptions = getRoleRef('export-format-options');
     refs.exportPanelTitle = getRoleRef('export-panel-title');
@@ -5031,6 +5071,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const button = event.target.closest('[data-export-format]');
       if (!button) return;
       state.exportFormat = button.dataset.exportFormat;
+      renderExportPanel();
+    });
+    addManagedEventListener(refs.exportPdfOptions, 'click', (event) => {
+      const button = event.target.closest('[data-export-corners]');
+      if (!button) return;
+      state.exportPdfRoundedCorners = button.dataset.exportCorners === 'rounded';
       renderExportPanel();
     });
     updateMobileMode();
