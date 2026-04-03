@@ -129,6 +129,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     isUtilityPanelOpen: false,
     activeUtilityTab: 'layout',
     isExportPanelOpen: false,
+    exportFormat: 'png',
     exportTargetEdge: EXPORT_MAX_EDGE,
     exportIncludeBackground: true,
     exportBackgroundHex: persistedBoardState.layout.exportBackgroundHex,
@@ -2369,10 +2370,23 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const currentHeight = bounds ? Math.max(1, Math.round(bounds.height)) : 0;
     const output = getExportOutputSize(bounds, state.exportTargetEdge);
     const controlsDisabled = !bounds || state.exportState.isExporting;
+    const isPdf = state.exportFormat === 'pdf';
 
     refs.exportCurrentSize.textContent = bounds ? `${currentWidth} x ${currentHeight}px` : 'No images';
-    refs.exportOutputSize.textContent = bounds ? `${output.width} x ${output.height}px PNG` : 'No export available';
+    refs.exportOutputSize.textContent = bounds
+      ? isPdf ? `${currentWidth} x ${currentHeight}px` : `${output.width} x ${output.height}px PNG`
+      : 'No export available';
+    if (refs.exportOutputLabel) refs.exportOutputLabel.textContent = isPdf ? 'Output PDF' : 'Output PNG';
+    if (refs.exportSizeRow) refs.exportSizeRow.hidden = isPdf;
+    if (refs.exportPanelTitle) refs.exportPanelTitle.textContent = isPdf ? 'PDF output' : 'PNG output';
+    if (refs.exportConfirm) refs.exportConfirm.textContent = isPdf ? 'Export PDF' : 'Export PNG';
     refs.exportPreviewFrame.dataset.transparent = String(!state.exportIncludeBackground);
+
+    refs.exportFormatOptions?.querySelectorAll('[data-export-format]').forEach((button) => {
+      const selected = button.dataset.exportFormat === state.exportFormat;
+      button.classList.toggle('board-export-panel__size-button--active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
 
     refs.exportBackgroundModes.querySelectorAll('[data-export-background-mode]').forEach((button) => {
       const shouldIncludeBackground = button.dataset.exportBackgroundMode === 'filled';
@@ -3576,6 +3590,111 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
   }
 
+  async function exportClusterAsPdf({
+    includeBackground = state.exportIncludeBackground,
+    backgroundHex = state.exportBackgroundHex,
+  } = {}) {
+    if (!state.items.length || state.exportState.isExporting) {
+      return;
+    }
+
+    setExportStatus('Exporting PDF...', 'working', { isExporting: true });
+
+    try {
+      const bounds = getClusterBounds();
+
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+        throw new Error('Nothing to export');
+      }
+
+      const { PDFDocument, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo, closePath, clip, endPath } =
+        await import('https://esm.sh/pdf-lib');
+
+      const PX_TO_PT = 0.75;
+      const pageWidth = bounds.width * PX_TO_PT;
+      const pageHeight = bounds.height * PX_TO_PT;
+
+      const pdfDoc = await PDFDocument.create();
+      const page = pdfDoc.addPage([pageWidth, pageHeight]);
+
+      if (includeBackground) {
+        const hex = (backgroundHex ?? DEFAULT_EXPORT_BACKGROUND_HEX).replace('#', '');
+        const r = parseInt(hex.slice(0, 2), 16) / 255;
+        const g = parseInt(hex.slice(2, 4), 16) / 255;
+        const b = parseInt(hex.slice(4, 6), 16) / 255;
+        page.drawRectangle({ x: 0, y: 0, width: pageWidth, height: pageHeight, color: rgb(r, g, b) });
+      }
+
+      const imageDataList = await Promise.all(
+        state.items.map(async (item) => ({
+          item,
+          bytes: await fetch(item.src).then((r) => r.arrayBuffer()),
+        })),
+      );
+      const bytesById = new Map(imageDataList.map(({ item, bytes }) => [item.id, bytes]));
+
+      for (const item of sortByVisualOrder(state.items)) {
+        const bytes = bytesById.get(item.id);
+
+        if (!bytes) {
+          continue;
+        }
+
+        const header = new Uint8Array(bytes).slice(0, 4);
+        const isPng = header[0] === 137 && header[1] === 80 && header[2] === 78 && header[3] === 71;
+        const pdfImage = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+
+        const frame = getTileFrame(item);
+        const exportFrame = {
+          left: frame.left - bounds.left,
+          top: frame.top - bounds.top,
+          width: frame.width,
+          height: frame.height,
+        };
+        const geometry = getCropGeometry(item, frame);
+
+        const x = exportFrame.left * PX_TO_PT;
+        const y = pageHeight - (exportFrame.top + exportFrame.height) * PX_TO_PT;
+        const w = exportFrame.width * PX_TO_PT;
+        const h = exportFrame.height * PX_TO_PT;
+        const imgX = x + geometry.left * PX_TO_PT;
+        const imgY = pageHeight - (exportFrame.top + geometry.top + geometry.height) * PX_TO_PT;
+        const imgW = geometry.width * PX_TO_PT;
+        const imgH = geometry.height * PX_TO_PT;
+
+        page.pushOperators(
+          pushGraphicsState(),
+          moveTo(x, y),
+          lineTo(x + w, y),
+          lineTo(x + w, y + h),
+          lineTo(x, y + h),
+          closePath(),
+          clip(),
+          endPath(),
+        );
+        page.drawImage(pdfImage, { x: imgX, y: imgY, width: imgW, height: imgH });
+        page.pushOperators(popGraphicsState());
+      }
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'moodboard-grid-export.pdf';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setExportStatus('PDF exported.', 'success', { resetAfter: EXPORT_STATUS_DURATION_MS });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'PDF export failed. Remote images may block browser export.';
+      setExportStatus(message, 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
+    }
+  }
+
   function setZoom(nextZoom, anchorClientX, anchorClientY) {
     if (!refs.shell || state.isMobileMode) {
       return;
@@ -4560,7 +4679,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
               data-role="export-png"
               aria-haspopup="dialog"
               aria-expanded="false"
-            >Export PNG</button>
+            >Export</button>
             <button
               type="button"
               class="board-hud__button"
@@ -4655,12 +4774,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
           <div class="board-panel__header">
             <div>
               <p class="board-panel__eyebrow">Export</p>
-              <p class="board-panel__title">PNG output</p>
+              <p class="board-panel__title" data-role="export-panel-title">PNG output</p>
             </div>
           </div>
           <div class="board-export-panel__preview" data-role="export-preview-frame" data-transparent="false" data-empty="true" data-loading="false">
             <canvas class="board-export-panel__preview-canvas" data-role="export-preview-canvas" hidden></canvas>
             <span class="board-export-panel__preview-message" data-role="export-preview-message">No images to preview.</span>
+          </div>
+          <div class="board-export-panel__meta">
+            <span class="board-export-panel__label">File type</span>
+            <div class="board-export-panel__sizes" data-role="export-format-options">
+              <button type="button" class="board-export-panel__size-button board-export-panel__size-button--active" data-export-format="png" aria-pressed="true">PNG</button>
+              <button type="button" class="board-export-panel__size-button" data-export-format="pdf" aria-pressed="false">PDF</button>
+            </div>
           </div>
           <div class="board-export-panel__meta">
             <span class="board-export-panel__label">Current cluster</span>
@@ -4697,8 +4823,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
               ).join('')}
             </div>
           </div>
-          <div class="board-export-panel__meta">
-            <span class="board-export-panel__label">Output PNG</span>
+          <div class="board-export-panel__meta" data-role="export-size-row">
+            <span class="board-export-panel__label" data-role="export-output-label">Output PNG</span>
             <span class="board-export-panel__value" data-role="export-output-size"></span>
           </div>
           <div class="board-export-panel__actions">
@@ -4749,7 +4875,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.layoutBackgroundHex = getRoleRef('layout-background-hex');
     refs.layoutBackgroundReset = getRoleRef('layout-background-reset');
     refs.exportOutputSize = getRoleRef('export-output-size');
+    refs.exportOutputLabel = getRoleRef('export-output-label');
+    refs.exportSizeRow = getRoleRef('export-size-row');
     refs.exportSizeOptions = getRoleRef('export-size-options');
+    refs.exportFormatOptions = getRoleRef('export-format-options');
+    refs.exportPanelTitle = getRoleRef('export-panel-title');
     refs.exportCancel = getRoleRef('export-cancel');
     refs.exportConfirm = getRoleRef('export-confirm');
     refs.layoutControls = Object.fromEntries(
@@ -4872,7 +5002,18 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const exportSettings = getExportSettings();
       setFloatingPanels(false, false);
       renderHud();
-      await exportClusterAsPng(exportSettings);
+      if (state.exportFormat === 'pdf') {
+        await exportClusterAsPdf(exportSettings);
+      } else {
+        await exportClusterAsPng(exportSettings);
+      }
+    });
+
+    addManagedEventListener(refs.exportFormatOptions, 'click', (event) => {
+      const button = event.target.closest('[data-export-format]');
+      if (!button) return;
+      state.exportFormat = button.dataset.exportFormat;
+      renderExportPanel();
     });
     updateMobileMode();
     state.zoom = getDefaultZoom();
