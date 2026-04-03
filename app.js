@@ -2676,6 +2676,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         ghost.style.top = `${frame.top}px`;
         ghost.style.width = `${frame.width}px`;
         ghost.style.height = `${frame.height}px`;
+        ghost.style.zIndex = String(1800 - target.colSpan * target.rowSpan);
         refs.stage.appendChild(ghost);
       }
 
