@@ -61,6 +61,11 @@
   height: 100%;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.moodboard-grid .board-shell::-webkit-scrollbar {
+  display: none;
 }
 
 .moodboard-grid.is-mobile-mode .board-shell {

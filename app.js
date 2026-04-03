@@ -4985,14 +4985,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
       refs.shell,
       'wheel',
       (event) => {
-        if (state.isMobileMode || !event.ctrlKey || state.dragSession || state.resizeSession || state.panSession) {
+        if (state.isMobileMode) {
           return;
         }
 
         event.preventDefault();
-        const direction = event.deltaY < 0 ? 1 : -1;
-        const anchor = getClusterAnchorClientPoint();
-        setZoom(state.zoom + direction * ZOOM_STEP, anchor.clientX, anchor.clientY);
+
+        if (event.ctrlKey && !state.dragSession && !state.resizeSession && !state.panSession) {
+          const direction = event.deltaY < 0 ? 1 : -1;
+          const anchor = getClusterAnchorClientPoint();
+          setZoom(state.zoom + direction * ZOOM_STEP, anchor.clientX, anchor.clientY);
+        } else if (!event.ctrlKey && !state.dragSession && !state.resizeSession) {
+          refs.shell.scrollLeft += event.deltaX;
+          refs.shell.scrollTop += event.deltaY;
+        }
       },
       { passive: false },
     );
