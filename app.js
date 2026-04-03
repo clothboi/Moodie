@@ -2378,7 +2378,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       ? isPdf ? `${currentWidth} x ${currentHeight}px` : `${output.width} x ${output.height}px PNG`
       : 'No export available';
     if (refs.exportOutputLabel) refs.exportOutputLabel.textContent = isPdf ? 'Output PDF' : 'Output PNG';
-    if (refs.exportSizeRow) refs.exportSizeRow.hidden = isPdf;
+    if (refs.exportSizeRow) refs.exportSizeRow.hidden = false;
     if (refs.exportPdfOptions) {
       refs.exportPdfOptions.hidden = !isPdf;
       refs.exportPdfOptions.querySelectorAll('[data-export-corners]').forEach((button) => {
@@ -3616,7 +3616,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         throw new Error('Nothing to export');
       }
 
-      const { PDFDocument, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo, curveTo, closePath, clip, endPath } =
+      const { PDFDocument, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo, appendBezierCurve, closePath, clip, endPath } =
         await import('https://esm.sh/pdf-lib');
 
       const PX_TO_PT = 0.75;
@@ -3697,16 +3697,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
               // bottom-left → bottom-right (bottom edge)
               moveTo(x + r, y),
               lineTo(x + w - r, y),
-              curveTo(x + w - r + k * r, y, x + w, y + k * r, x + w, y + r),
+              appendBezierCurve(x + w - r + k * r, y, x + w, y + k * r, x + w, y + r),
               // bottom-right → top-right (right edge)
               lineTo(x + w, y + h - r),
-              curveTo(x + w, y + h - r + k * r, x + w - r + k * r, y + h, x + w - r, y + h),
+              appendBezierCurve(x + w, y + h - r + k * r, x + w - r + k * r, y + h, x + w - r, y + h),
               // top-right → top-left (top edge)
               lineTo(x + r, y + h),
-              curveTo(x + r - k * r, y + h, x, y + h - r + k * r, x, y + h - r),
+              appendBezierCurve(x + r - k * r, y + h, x, y + h - r + k * r, x, y + h - r),
               // top-left → bottom-left (left edge)
               lineTo(x, y + r),
-              curveTo(x, y + r - k * r, x + r - k * r, y, x + r, y),
+              appendBezierCurve(x, y + r - k * r, x + r - k * r, y, x + r, y),
               closePath(),
               clip(),
               endPath(),
