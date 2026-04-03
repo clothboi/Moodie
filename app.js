@@ -3642,7 +3642,25 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
         const header = new Uint8Array(bytes).slice(0, 4);
         const isPng = header[0] === 137 && header[1] === 80 && header[2] === 78 && header[3] === 71;
-        const pdfImage = isPng ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const isJpeg = header[0] === 0xFF && header[1] === 0xD8 && header[2] === 0xFF;
+        let pdfImage;
+
+        if (isPng) {
+          pdfImage = await pdfDoc.embedPng(bytes);
+        } else if (isJpeg) {
+          pdfImage = await pdfDoc.embedJpg(bytes);
+        } else {
+          // WebP or other format — convert to PNG via canvas
+          const img = await loadImageForExport(item.src);
+          const offscreen = document.createElement('canvas');
+          offscreen.width = img.naturalWidth;
+          offscreen.height = img.naturalHeight;
+          offscreen.getContext('2d').drawImage(img, 0, 0);
+          const pngBytes = await new Promise((resolve, reject) =>
+            offscreen.toBlob((blob) => (blob ? blob.arrayBuffer().then(resolve) : reject(new Error('Canvas conversion failed'))), 'image/png'),
+          );
+          pdfImage = await pdfDoc.embedPng(pngBytes);
+        }
 
         const frame = getTileFrame(item);
         const exportFrame = {
