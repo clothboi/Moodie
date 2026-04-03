@@ -2829,15 +2829,15 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     if (isSingleSelectedTile && selectedItem && tileViewportFrame) {
       const safeAreaInsets = getSafeAreaInsets();
-      const topBarGap = 18;
-      const bottomBarGap = 10;
+      const topBarGap = 18 * zoom;
+      const bottomBarGap = 10 * zoom;
       const horizontalInset = 8;
       const hasLink = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl;
       const actionBarWidth = tileViewportFrame.width;
       const cropBarWidth = tileViewportFrame.width;
-      const actionBarHeight = 46;
-      const cropBarHeight = 58;
-      const stackedBarGap = 8;
+      const actionBarHeight = 46 * zoom;
+      const cropBarHeight = 58 * zoom;
+      const stackedBarGap = 8 * zoom;
       const scrollLeft = refs.shell?.scrollLeft ?? 0;
       const scrollTop = refs.shell?.scrollTop ?? 0;
       const actionBarLeft = tileViewportFrame.left;
@@ -2857,15 +2857,23 @@ function createMoodboardGrid(container, initialOptions = {}) {
       actionBar.style.left = `${actionBarLeft}px`;
       actionBar.style.top = `${actionBarTop}px`;
       actionBar.style.width = `${actionBarWidth}px`;
+      actionBar.style.padding = `${10 * zoom}px ${12 * zoom}px`;
+      actionBar.style.gap = `${10 * zoom}px`;
+      actionBar.style.borderRadius = `${14 * zoom}px`;
+      actionBar.style.minHeight = `${46 * zoom}px`;
 
       const actionGroup = document.createElement('div');
       actionGroup.className = 'board-tile-selection-bar__actions';
+      actionGroup.style.gap = `${6 * zoom}px`;
 
       if (state.isMobileMode) {
         const selectButton = document.createElement('button');
         selectButton.type = 'button';
         selectButton.className = 'board-selection-toolbar__button board-tile-selection-bar__button';
         selectButton.textContent = 'Select';
+        selectButton.style.minHeight = `${34 * zoom}px`;
+        selectButton.style.paddingInline = `${8 * zoom}px`;
+        selectButton.style.fontSize = `${0.65 * zoom}rem`;
         selectButton.addEventListener('click', () => {
           state.isMultiSelectMode = true;
           renderHud();
@@ -2879,6 +2887,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
         linkButton.type = 'button';
         linkButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--primary board-tile-selection-bar__button';
         linkButton.textContent = 'Open Link';
+        linkButton.style.minHeight = `${34 * zoom}px`;
+        linkButton.style.paddingInline = `${8 * zoom}px`;
+        linkButton.style.fontSize = `${0.65 * zoom}rem`;
         linkButton.addEventListener('click', () => {
           openItemSource(selectedItem);
         });
@@ -2889,6 +2900,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
       deleteButton.type = 'button';
       deleteButton.className = 'board-selection-toolbar__button board-selection-toolbar__button--danger board-tile-selection-bar__button';
       deleteButton.textContent = 'Delete';
+      deleteButton.style.minHeight = `${34 * zoom}px`;
+      deleteButton.style.paddingInline = `${8 * zoom}px`;
+      deleteButton.style.fontSize = `${0.65 * zoom}rem`;
       deleteButton.addEventListener('click', () => {
         deleteSelection(selectedItem.id);
       });
@@ -2901,17 +2915,24 @@ function createMoodboardGrid(container, initialOptions = {}) {
       cropBar.style.left = `${cropBarLeft}px`;
       cropBar.style.top = `${cropBarTop}px`;
       cropBar.style.width = `${cropBarWidth}px`;
+      cropBar.style.padding = `${10 * zoom}px ${12 * zoom}px`;
+      cropBar.style.gap = `${10 * zoom}px`;
+      cropBar.style.borderRadius = `${14 * zoom}px`;
+      cropBar.style.minHeight = `${58 * zoom}px`;
 
       const cropMeta = document.createElement('div');
       cropMeta.className = 'board-tile-selection-bar__meta';
+      cropMeta.style.gap = `${12 * zoom}px`;
 
       const cropLabel = document.createElement('span');
       cropLabel.className = 'board-tile-selection-bar__label';
       cropLabel.textContent = 'Crop zoom';
+      cropLabel.style.fontSize = `${0.76 * zoom}rem`;
 
       const cropValue = document.createElement('span');
       cropValue.className = 'board-tile-selection-bar__value';
       cropValue.textContent = formatCropZoomLabel(getItemCrop(selectedItem).zoom);
+      cropValue.style.fontSize = `${0.76 * zoom}rem`;
 
       cropMeta.append(cropLabel, cropValue);
 
