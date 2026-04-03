@@ -2858,19 +2858,21 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const actionBarHeight = 46;
       const cropBarHeight = 58;
       const stackedBarGap = 8;
+      const scrollLeft = refs.shell?.scrollLeft ?? 0;
+      const scrollTop = refs.shell?.scrollTop ?? 0;
       const tileCenterX = tileViewportFrame.left + tileViewportFrame.width / 2;
       const actionBarLeft = clamp(
         tileCenterX - actionBarWidth / 2,
-        safeAreaInsets.left + horizontalInset,
-        getViewportWidth() - safeAreaInsets.right - horizontalInset - actionBarWidth,
+        scrollLeft + safeAreaInsets.left + horizontalInset,
+        scrollLeft + getViewportWidth() - safeAreaInsets.right - horizontalInset - actionBarWidth,
       );
       const cropBarLeft = clamp(
         tileCenterX - cropBarWidth / 2,
-        safeAreaInsets.left + horizontalInset,
-        getViewportWidth() - safeAreaInsets.right - horizontalInset - cropBarWidth,
+        scrollLeft + safeAreaInsets.left + horizontalInset,
+        scrollLeft + getViewportWidth() - safeAreaInsets.right - horizontalInset - cropBarWidth,
       );
-      const minTop = safeAreaInsets.top + horizontalInset;
-      const maxCropBarTop = getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight;
+      const minTop = scrollTop + safeAreaInsets.top + horizontalInset;
+      const maxCropBarTop = scrollTop + getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight;
       const preferredCropBarTopBelow = tileViewportFrame.top + tileViewportFrame.height + bottomBarGap;
       const canPlaceCropBelow = preferredCropBarTopBelow <= maxCropBarTop;
       const cropBarTop = canPlaceCropBelow
@@ -4991,13 +4993,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
         event.preventDefault();
 
-        if (event.ctrlKey && !state.dragSession && !state.resizeSession && !state.panSession) {
+        if (!state.dragSession && !state.resizeSession && !state.panSession) {
           const direction = event.deltaY < 0 ? 1 : -1;
           const anchor = getClusterAnchorClientPoint();
           setZoom(state.zoom + direction * ZOOM_STEP, anchor.clientX, anchor.clientY);
-        } else if (!event.ctrlKey && !state.dragSession && !state.resizeSession) {
-          refs.shell.scrollLeft += event.deltaX;
-          refs.shell.scrollTop += event.deltaY;
         }
       },
       { passive: false },

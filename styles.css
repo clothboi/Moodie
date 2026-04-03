@@ -652,29 +652,11 @@
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
       transparent 2.2px
-    ),
-    repeating-linear-gradient(
-      to bottom,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
-      transparent 1px,
-      transparent var(--grid-row-size)
-    ),
-    repeating-linear-gradient(
-      to right,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 0,
-      var(--grid-line-color, rgba(255, 255, 255, 0.08)) 1px,
-      transparent 1px,
-      transparent var(--grid-row-size)
     );
   background-size:
-    var(--grid-column-size) calc(var(--grid-row-size) * 3),
-    auto,
-    auto;
+    var(--grid-column-size) calc(var(--grid-row-size) * 3);
   background-position:
-    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2)),
-    0 0,
-    0 0;
+    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2));
   pointer-events: none;
 }
 
