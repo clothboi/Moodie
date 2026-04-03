@@ -2379,6 +2379,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       : 'No export available';
     if (refs.exportOutputLabel) refs.exportOutputLabel.textContent = isPdf ? 'Output PDF' : 'Output PNG';
     if (refs.exportSizeRow) refs.exportSizeRow.hidden = false;
+    if (refs.exportEdgeRow) refs.exportEdgeRow.hidden = isPdf;
     if (refs.exportPdfOptions) {
       refs.exportPdfOptions.hidden = !isPdf;
       refs.exportPdfOptions.querySelectorAll('[data-export-corners]').forEach((button) => {
@@ -4859,7 +4860,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
               >Transparent</button>
             </div>
           </div>
-          <div class="board-export-panel__meta" hidden>
+          <div class="board-export-panel__meta" data-role="export-edge-row">
             <span class="board-export-panel__label">Longest edge</span>
             <div class="board-export-panel__sizes" data-role="export-size-options">
               ${EXPORT_EDGE_OPTIONS.map(
@@ -4934,6 +4935,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportOutputSize = getRoleRef('export-output-size');
     refs.exportOutputLabel = getRoleRef('export-output-label');
     refs.exportSizeRow = getRoleRef('export-size-row');
+    refs.exportEdgeRow = getRoleRef('export-edge-row');
     refs.exportPdfOptions = getRoleRef('export-pdf-options');
     refs.exportSizeOptions = getRoleRef('export-size-options');
     refs.exportFormatOptions = getRoleRef('export-format-options');
