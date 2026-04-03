@@ -1055,8 +1055,8 @@
 .moodboard-grid .board-resize-ghost {
   position: absolute;
   border-radius: var(--board-radius, 4px);
-  border: 2px dashed rgba(232, 238, 243, 0.28);
-  background: rgba(255, 255, 255, 0.10);
+  border: 2px dashed rgba(232, 238, 243, 1);
+  background: rgba(255, 255, 255, 0.15);
   pointer-events: none;
   z-index: 1800;
 }
