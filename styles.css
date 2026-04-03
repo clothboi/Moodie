@@ -1695,12 +1695,12 @@
 
 .moodboard-grid .board-tile-selection-bar__actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .moodboard-grid .board-tile-selection-bar__button {
+  width: 100%;
   min-height: 34px;
   padding-inline: 12px;
   font-size: 0.76rem;
