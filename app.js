@@ -466,6 +466,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return {
       lineColor: `rgba(${inkRgb}, ${luminance > 0.58 ? 0.16 : 0.08})`,
       dotColor: `rgba(${inkRgb}, ${luminance > 0.58 ? 0.3 : 0.34})`,
+      subDotColor: `rgba(${inkRgb}, ${luminance > 0.58 ? 0.15 : 0.18})`,
     };
   }
 
@@ -3220,6 +3221,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const gridPalette = getGridOverlayPalette();
     refs.board.style.setProperty('--grid-line-color', gridPalette.lineColor);
     refs.board.style.setProperty('--grid-dot-color', gridPalette.dotColor);
+    refs.board.style.setProperty('--grid-sub-dot-color', gridPalette.subDotColor);
     refs.stage.style.width = `${GRID_WIDTH}px`;
     refs.stage.style.height = `${logicalBoardHeight}px`;
     refs.stage.style.transform = state.isMobileMode
@@ -3229,6 +3231,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.stage.style.setProperty('--board-backdrop-color', state.exportBackgroundHex);
     refs.stage.style.setProperty('--grid-line-color', gridPalette.lineColor);
     refs.stage.style.setProperty('--grid-dot-color', gridPalette.dotColor);
+    refs.stage.style.setProperty('--grid-sub-dot-color', gridPalette.subDotColor);
     refs.stage.replaceChildren();
 
     const grid = document.createElement('div');

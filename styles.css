@@ -650,13 +650,21 @@
     radial-gradient(
       circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
-      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 2px,
-      transparent 2.2px
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 1.5px,
+      transparent 1.7px
+    ),
+    radial-gradient(
+      circle at center,
+      var(--grid-sub-dot-color, rgba(255, 255, 255, 0.18)) 0,
+      var(--grid-sub-dot-color, rgba(255, 255, 255, 0.18)) 0.75px,
+      transparent 0.95px
     );
   background-size:
-    var(--grid-column-size) calc(var(--grid-row-size) * 3);
+    var(--grid-column-size) calc(var(--grid-row-size) * 3),
+    var(--grid-column-size) var(--grid-row-size);
   background-position:
-    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2));
+    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - ((var(--grid-row-size) * 3) / 2)),
+    calc(0.5px - (var(--grid-column-size) / 2)) calc(0.5px - (var(--grid-row-size) / 2));
   pointer-events: none;
 }
 
