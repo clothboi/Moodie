@@ -1386,6 +1386,37 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return Math.max(1, Math.round(renderedHeight / GRID_SPEC.rowPx));
   }
 
+  function findPasteSlot(rowSpan, items) {
+    if (items.length === 0) {
+      return findFirstOpenSlot(1, rowSpan, items);
+    }
+
+    const clusterRight = Math.max(...items.map((item) => item.colStart + item.colSpan));
+    const clusterLeft = Math.min(...items.map((item) => item.colStart));
+    const clusterTop = Math.min(...items.map((item) => item.rowStart));
+    const clusterBottom = Math.max(...items.map((item) => item.rowStart + item.rowSpan));
+
+    // 1. Two cols to the right of cluster
+    const col2 = clusterRight + 2;
+    if (col2 + 1 <= GRID_SPEC.maxColumns && rectFits({ colStart: col2, rowStart: clusterTop, colSpan: 1, rowSpan }, items)) {
+      return { colStart: col2, rowStart: clusterTop };
+    }
+
+    // 2. One col to the right of cluster
+    const col1 = clusterRight + 1;
+    if (col1 + 1 <= GRID_SPEC.maxColumns && rectFits({ colStart: col1, rowStart: clusterTop, colSpan: 1, rowSpan }, items)) {
+      return { colStart: col1, rowStart: clusterTop };
+    }
+
+    // 3. Immediately adjacent right
+    if (clusterRight + 1 <= GRID_SPEC.maxColumns && rectFits({ colStart: clusterRight, rowStart: clusterTop, colSpan: 1, rowSpan }, items)) {
+      return { colStart: clusterRight, rowStart: clusterTop };
+    }
+
+    // 4. Below the cluster (nearest available)
+    return findNearestOpenSlot(clusterLeft, clusterBottom, 1, rowSpan, items);
+  }
+
   function placeNewItem(imageMeta, targetPoint, items) {
     const rowSpan = computeRowSpan(imageMeta, 1);
     const nextZIndex = items.reduce((maxZIndex, item) => Math.max(maxZIndex, item.zIndex), 0) + 1;
@@ -1393,7 +1424,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const targetRow = targetPoint ? Math.max(0, Math.round(targetPoint.y / GRID_SPEC.rowPx)) : 0;
     const slot = targetPoint
       ? findNearestOpenSlot(targetCol, targetRow, 1, rowSpan, items)
-      : findFirstOpenSlot(1, rowSpan, items);
+      : findPasteSlot(rowSpan, items);
 
     const nextItem = {
       id: imageMeta.id || createItemId(),
