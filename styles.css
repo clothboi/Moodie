@@ -752,6 +752,10 @@
     0 18px 40px rgba(0, 0, 0, 0.26);
 }
 
+.moodboard-grid .board-tile--dimmed .board-media-image {
+  opacity: 0.25;
+}
+
 .moodboard-grid .board-media-image,
 .moodboard-grid .board-tile__shadow {
   position: absolute;

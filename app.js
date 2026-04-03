@@ -2848,30 +2848,15 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const safeAreaInsets = getSafeAreaInsets();
       const topBarGap = 18;
       const bottomBarGap = 10;
-      const horizontalInset = 8;
-      const maxBarWidth = Math.min(360, getViewportWidth() - safeAreaInsets.left - safeAreaInsets.right - 16);
-      const hasLink = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl;
-      const minActionBarWidth = state.isMobileMode
-        ? (hasLink ? 280 : 188)
-        : (hasLink ? 188 : 96);
-      const actionBarWidth = clamp(tileViewportFrame.width, minActionBarWidth, maxBarWidth);
-      const cropBarWidth = clamp(tileViewportFrame.width, 180, maxBarWidth);
+      const actionBarWidth = tileViewportFrame.width;
+      const cropBarWidth = tileViewportFrame.width;
       const actionBarHeight = 46;
       const cropBarHeight = 58;
       const stackedBarGap = 8;
       const scrollLeft = refs.shell?.scrollLeft ?? 0;
       const scrollTop = refs.shell?.scrollTop ?? 0;
-      const tileCenterX = tileViewportFrame.left + tileViewportFrame.width / 2;
-      const actionBarLeft = clamp(
-        tileCenterX - actionBarWidth / 2,
-        scrollLeft + safeAreaInsets.left + horizontalInset,
-        scrollLeft + getViewportWidth() - safeAreaInsets.right - horizontalInset - actionBarWidth,
-      );
-      const cropBarLeft = clamp(
-        tileCenterX - cropBarWidth / 2,
-        scrollLeft + safeAreaInsets.left + horizontalInset,
-        scrollLeft + getViewportWidth() - safeAreaInsets.right - horizontalInset - cropBarWidth,
-      );
+      const actionBarLeft = tileViewportFrame.left;
+      const cropBarLeft = tileViewportFrame.left;
       const minTop = scrollTop + safeAreaInsets.top + horizontalInset;
       const maxCropBarTop = scrollTop + getViewportHeight() - safeAreaInsets.bottom - horizontalInset - cropBarHeight;
       const preferredCropBarTopBelow = tileViewportFrame.top + tileViewportFrame.height + bottomBarGap;
@@ -3244,6 +3229,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const selectedIdSet = new Set(getSelectionIds());
     const selectionAnchorId = getSelectionAnchorId();
     const hasMultiSelection = selectedIdSet.size > 1;
+    const hasFocusedTile = !hasMultiSelection && !!selectionAnchorId && !state.dragSession && !state.resizeSession && !state.marqueeSession && state.singleSelectionUiEnabled;
     let cropAnchorTarget = null;
     const movingItemIds = new Set(state.dragSession?.groupItemIds || []);
     const isGroupDrag = movingItemIds.size > 1 && !state.dragSession?.isShiftStack;
@@ -3275,7 +3261,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const tile = document.createElement('div');
       tile.className = `board-tile${isSelected ? ' board-tile--selected' : ''}${
         isSelected && hasMultiSelection ? ' board-tile--multi-selected' : ''
-      }${isAffectedPreviewItem ? ' board-tile--affected' : ''}${shouldLiftTile ? ' board-tile--lifted' : ''}`;
+      }${isAffectedPreviewItem ? ' board-tile--affected' : ''}${shouldLiftTile ? ' board-tile--lifted' : ''}${hasFocusedTile && !isPrimarySelected ? ' board-tile--dimmed' : ''}`;
       tile.tabIndex = 0;
       tile.setAttribute('role', 'button');
       tile.setAttribute('aria-label', 'Moodboard image tile');
