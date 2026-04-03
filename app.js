@@ -4567,7 +4567,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
               data-role="utility-toggle"
               aria-haspopup="dialog"
               aria-expanded="false"
-            >Utilities</button>
+            >Settings</button>
           </div>
         </div>
         <div class="board-mobile-zoom" data-role="mobile-zoom" hidden>
@@ -4593,7 +4593,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
           </div>
           <div class="board-utility-panel__tabs">
             <button type="button" class="board-utility-panel__tab" data-role="utility-tab-layout" aria-pressed="true">Layout</button>
-            <button type="button" class="board-utility-panel__tab" data-role="utility-tab-hints" aria-pressed="false">Tips</button>
           </div>
           <div class="board-utility-panel__section" data-role="utility-layout-section">
             <p class="board-utility-panel__copy">Adjust the board rhythm and export backdrop while keeping the snapping behaviour unchanged.</p>
@@ -4650,10 +4649,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
               </div>
               <button type="button" class="board-hud__button board-hud__button--danger" data-role="new-project">Start New Project</button>
             </div>
-          </div>
-          <div class="board-utility-panel__section" data-role="utility-hints-section" hidden>
-            <p class="board-utility-panel__copy">Keep the board surface clean and use these shortcuts when you need finer control.</p>
-            <ul class="board-hints-panel__list" data-role="hints-list"></ul>
           </div>
         </div>
         <div class="board-export-panel" data-role="export-panel" hidden>
@@ -4819,9 +4814,6 @@ function createMoodboardGrid(container, initialOptions = {}) {
     addManagedEventListener(refs.utilityClose, 'click', closeFloatingPanels);
     addManagedEventListener(refs.utilityTabLayout, 'click', () => {
       openUtilityTab('layout');
-    });
-    addManagedEventListener(refs.utilityTabHints, 'click', () => {
-      openUtilityTab('hints');
     });
     for (const { key } of LAYOUT_CONTROL_CONFIG) {
       const control = refs.layoutControls[key];

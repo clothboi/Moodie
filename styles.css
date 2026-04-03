@@ -1064,7 +1064,7 @@
 .moodboard-grid .board-resize-ghost--active {
   border-width: 2px;
   border-color: rgba(125, 193, 255, 1);
-  background: rgba(125, 193, 255, 0.15);
+  background: rgba(125, 193, 255, 0.30);
   box-shadow:
     inset 0 0 0 1px rgba(216, 238, 255, 0.06),
     0 0 0 1px rgba(24, 66, 106, 0.16);
