@@ -2833,9 +2833,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const bottomBarGap = 10;
       const horizontalInset = 8;
       const hasLink = selectedItem.sourceKind === 'web' && selectedItem.sourceUrl;
-      const minBarWidth = 180;
-      const actionBarWidth = Math.max(minBarWidth, tileViewportFrame.width);
-      const cropBarWidth = Math.max(minBarWidth, tileViewportFrame.width);
+      const barWidth = selectedItem.colSpan * GRID_SPEC.columnPx - getGapPx();
+      const actionBarWidth = barWidth;
+      const cropBarWidth = barWidth;
       const actionBarHeight = 46;
       const cropBarHeight = 58;
       const stackedBarGap = 8;
