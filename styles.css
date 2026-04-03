@@ -650,14 +650,14 @@
     radial-gradient(
       circle at center,
       var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 0,
-      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 1.5px,
-      transparent 1.7px
+      var(--grid-dot-color, rgba(255, 255, 255, 0.34)) 1px,
+      transparent 1.2px
     ),
     radial-gradient(
       circle at center,
       var(--grid-sub-dot-color, rgba(255, 255, 255, 0.18)) 0,
-      var(--grid-sub-dot-color, rgba(255, 255, 255, 0.18)) 0.75px,
-      transparent 0.95px
+      var(--grid-sub-dot-color, rgba(255, 255, 255, 0.18)) 0.5px,
+      transparent 0.7px
     );
   background-size:
     var(--grid-column-size) calc(var(--grid-row-size) * 3),
