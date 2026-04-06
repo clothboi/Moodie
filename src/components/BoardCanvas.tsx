@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { DragEvent, KeyboardEvent, PointerEvent } from 'react';
 import type { BoardItem, GridSpec, Point } from '../types';
+import { computeRowSpan } from '../layout';
 import { GridOverlay } from './GridOverlay';
 
 interface DragState {
@@ -10,6 +11,13 @@ interface DragState {
   offsetY: number;
   previewX: number;
   previewY: number;
+}
+
+interface ResizeState {
+  itemId: string;
+  pointerId: number;
+  startY: number;
+  currentY: number;
 }
 
 interface BoardCanvasProps {
@@ -22,6 +30,9 @@ interface BoardCanvasProps {
   onToggleSpan: (itemId: string, nextColSpan: 1 | 2) => void;
   onInsertFiles: (files: File[], point: Point | null) => Promise<void>;
 }
+
+const RESIZE_THRESHOLD = 30;
+const GHOST_GAP = 10;
 
 function getPointWithinBoard(
   boardRect: DOMRect,
@@ -48,6 +59,7 @@ export function BoardCanvas({
 }: BoardCanvasProps) {
   const boardRef = useRef<HTMLDivElement | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const [isDropActive, setIsDropActive] = useState(false);
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
@@ -128,12 +140,48 @@ export function BoardCanvas({
     setDragState(null);
   };
 
+  const handleResizePointerDown = (event: PointerEvent<HTMLSpanElement>, item: BoardItem) => {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    onSelectItem(item.id);
+    setResizeState({
+      itemId: item.id,
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      currentY: event.clientY,
+    });
+  };
+
+  const handleResizePointerMove = (event: PointerEvent<HTMLSpanElement>) => {
+    setResizeState((current) => {
+      if (!current || current.pointerId !== event.pointerId) return current;
+      return { ...current, currentY: event.clientY };
+    });
+  };
+
+  const handleResizePointerUp = (event: PointerEvent<HTMLSpanElement>, item: BoardItem) => {
+    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+
+    const deltaY = event.clientY - resizeState.startY;
+
+    if (deltaY > RESIZE_THRESHOLD && item.colSpan < 2) {
+      onToggleSpan(item.id, 2);
+    } else if (deltaY < -RESIZE_THRESHOLD && item.colSpan > 1) {
+      onToggleSpan(item.id, 1);
+    }
+
+    setResizeState(null);
+  };
+
   const handleTileKeyDown = (event: KeyboardEvent<HTMLDivElement>, itemId: string) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onSelectItem(itemId);
     }
   };
+
+  const resizingItem = resizeState ? items.find((item) => item.id === resizeState.itemId) ?? null : null;
+  const resizeDeltaY = resizeState ? resizeState.currentY - resizeState.startY : 0;
 
   return (
     <div className="board-shell">
@@ -191,24 +239,50 @@ export function BoardCanvas({
                 <span>{item.colSpan === 1 ? '1 col' : '2 col'}</span>
                 <span>{item.rowSpan} rows</span>
               </span>
-              {isSelected ? (
-                <span className="board-tile__actions">
-                  <button
-                    type="button"
-                    className="board-tile__toggle"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleSpan(item.id, item.colSpan === 1 ? 2 : 1);
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                  >
-                    {item.colSpan === 1 ? 'Expand to 2 cols' : 'Collapse to 1 col'}
-                  </button>
-                </span>
-              ) : null}
+              <span
+                className="board-tile__resize-handle"
+                onPointerDown={(event) => handleResizePointerDown(event, item)}
+                onPointerMove={handleResizePointerMove}
+                onPointerUp={(event) => handleResizePointerUp(event, item)}
+                onPointerCancel={() => setResizeState(null)}
+              />
             </div>
           );
         })}
+        {resizingItem ? (
+          <>
+            {resizingItem.colSpan < 2 ? (
+              <div
+                className={`board-tile-ghost${resizeDeltaY > RESIZE_THRESHOLD ? ' board-tile-ghost--active' : ''}`}
+                style={{
+                  left: `${resizingItem.colStart * gridSpec.columnPx}px`,
+                  top: `${(resizingItem.rowStart + resizingItem.rowSpan) * gridSpec.rowPx + GHOST_GAP}px`,
+                  width: `${2 * gridSpec.columnPx}px`,
+                  height: `${computeRowSpan(resizingItem, 2, gridSpec) * gridSpec.rowPx}px`,
+                }}
+              >
+                <img src={resizingItem.src} alt="" draggable={false} />
+              </div>
+            ) : null}
+            {resizingItem.colSpan > 1 ? (() => {
+              const ghostRowSpan = computeRowSpan(resizingItem, 1, gridSpec);
+              const ghostHeight = ghostRowSpan * gridSpec.rowPx;
+              return (
+                <div
+                  className={`board-tile-ghost${resizeDeltaY < -RESIZE_THRESHOLD ? ' board-tile-ghost--active' : ''}`}
+                  style={{
+                    left: `${resizingItem.colStart * gridSpec.columnPx}px`,
+                    top: `${resizingItem.rowStart * gridSpec.rowPx - ghostHeight - GHOST_GAP}px`,
+                    width: `${1 * gridSpec.columnPx}px`,
+                    height: `${ghostHeight}px`,
+                  }}
+                >
+                  <img src={resizingItem.src} alt="" draggable={false} />
+                </div>
+              );
+            })() : null}
+          </>
+        ) : null}
         {items.length === 0 ? (
           <div className="board-empty-state">
             <p>Drop images anywhere on the grid.</p>
