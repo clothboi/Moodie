@@ -202,9 +202,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   const annotationTextEls = new Map();
   let arrowSvgEl = null;
-  // Last font the user picked, so new text boxes keep their choice. Persisted
-  // per board so it survives reloads.
-  let lastPickedFont = loadLastPickedFont();
+  // Last settings the user chose for each annotation kind (colour, size, font,
+  // weight), so new text/arrows inherit them. Persisted per board.
+  const annotationPrefs = loadAnnotationPrefs();
   // Latest pointer position (client coords), so the T shortcut can drop a text
   // box exactly where the cursor is.
   let lastPointerClient = null;
@@ -568,28 +568,76 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return (match ?? ANNOTATION_FONTS[0]).stack;
   }
 
-  function loadLastPickedFont() {
+  function loadAnnotationPrefs() {
+    const prefs = {
+      text: {
+        color: ANNOTATION_TEXT_DEFAULTS.color,
+        fontSize: ANNOTATION_TEXT_DEFAULTS.fontSize,
+        font: ANNOTATION_TEXT_DEFAULTS.font,
+      },
+      arrow: {
+        color: ANNOTATION_ARROW_DEFAULTS.color,
+        weight: ANNOTATION_ARROW_DEFAULTS.weight,
+      },
+    };
+
     try {
-      const raw = window.localStorage.getItem(`${STORAGE_KEY}.lastFont`);
-      if (raw && ANNOTATION_FONTS.some((font) => font.id === raw)) {
-        return raw;
+      const raw = window.localStorage.getItem(`${STORAGE_KEY}.annotationPrefs`);
+      const parsed = raw ? JSON.parse(raw) : null;
+
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.text && typeof parsed.text === 'object') {
+          prefs.text.color = normalizeExportBackgroundHex(parsed.text.color, prefs.text.color);
+          prefs.text.fontSize = clamp(
+            Math.round(Number(parsed.text.fontSize) || prefs.text.fontSize),
+            ANNOTATION_FONT_MIN,
+            ANNOTATION_FONT_MAX,
+          );
+          if (ANNOTATION_FONTS.some((font) => font.id === parsed.text.font)) {
+            prefs.text.font = parsed.text.font;
+          }
+        }
+        if (parsed.arrow && typeof parsed.arrow === 'object') {
+          prefs.arrow.color = normalizeExportBackgroundHex(parsed.arrow.color, prefs.arrow.color);
+          prefs.arrow.weight = clamp(
+            Math.round(Number(parsed.arrow.weight) || prefs.arrow.weight),
+            ANNOTATION_ARROW_MIN_WEIGHT,
+            ANNOTATION_ARROW_MAX_WEIGHT,
+          );
+        }
       }
     } catch {
-      // Ignore storage failures.
+      // Ignore storage failures — fall back to defaults.
     }
-    return ANNOTATION_TEXT_DEFAULTS.font;
+
+    return prefs;
   }
 
-  function setLastPickedFont(fontId) {
-    if (!ANNOTATION_FONTS.some((font) => font.id === fontId)) {
-      return;
-    }
-    lastPickedFont = fontId;
+  function persistAnnotationPrefs() {
     try {
-      window.localStorage.setItem(`${STORAGE_KEY}.lastFont`, fontId);
+      window.localStorage.setItem(`${STORAGE_KEY}.annotationPrefs`, JSON.stringify(annotationPrefs));
     } catch {
       // Ignore storage failures.
     }
+  }
+
+  // Capture whatever the user just set on an annotation as the default for the
+  // next one of the same kind.
+  function rememberAnnotationDefaults(annotation) {
+    if (!annotation) {
+      return;
+    }
+
+    if (annotation.type === 'text') {
+      annotationPrefs.text.color = annotation.color;
+      annotationPrefs.text.fontSize = annotation.fontSize;
+      annotationPrefs.text.font = annotation.font;
+    } else if (annotation.type === 'arrow') {
+      annotationPrefs.arrow.color = annotation.color;
+      annotationPrefs.arrow.weight = annotation.weight;
+    }
+
+    persistAnnotationPrefs();
   }
 
   function isAnnotation(annotation) {
@@ -3866,10 +3914,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
       y,
       width: ANNOTATION_TEXT_DEFAULTS.width,
       text: '',
-      color: ANNOTATION_TEXT_DEFAULTS.color,
-      fontSize: ANNOTATION_TEXT_DEFAULTS.fontSize,
+      color: annotationPrefs.text.color,
+      fontSize: annotationPrefs.text.fontSize,
       align: ANNOTATION_TEXT_DEFAULTS.align,
-      font: lastPickedFont,
+      font: annotationPrefs.text.font,
     };
     state.annotations.push(annotation);
     state.activeTool = null;
@@ -4403,8 +4451,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
           type: 'arrow',
           fromTextId: session.fromTextId,
           points: simplified,
-          color: ANNOTATION_ARROW_DEFAULTS.color,
-          weight: ANNOTATION_ARROW_DEFAULTS.weight,
+          color: annotationPrefs.arrow.color,
+          weight: annotationPrefs.arrow.weight,
         };
         state.annotations.push(arrow);
         state.selectedAnnotationId = arrow.id;
@@ -4641,8 +4689,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
         const preview = svgEl('path', {
           d: buildArrowGeometry(previewPoints).path,
           fill: 'none',
-          stroke: ANNOTATION_ARROW_DEFAULTS.color,
-          'stroke-width': ANNOTATION_ARROW_DEFAULTS.weight,
+          stroke: annotationPrefs.arrow.color,
+          'stroke-width': annotationPrefs.arrow.weight,
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
           'stroke-dasharray': `${6 / zoom} ${5 / zoom}`,
@@ -6580,9 +6628,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
       if (!annotation) return;
       if (control.dataset.atb === 'color') {
         saveBoardState();
+        rememberAnnotationDefaults(annotation);
       } else if (control.dataset.atb === 'font') {
         updateAnnotation(annotation.id, { font: control.value });
-        setLastPickedFont(control.value);
+        rememberAnnotationDefaults(annotation);
         renderAnnotations();
       }
     });
@@ -6608,6 +6657,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         updateAnnotation(annotation.id, { weight: clamp(annotation.weight + 1, ANNOTATION_ARROW_MIN_WEIGHT, ANNOTATION_ARROW_MAX_WEIGHT) });
       }
 
+      rememberAnnotationDefaults(annotation);
       renderAnnotations();
       renderAnnotationToolbar();
     });
