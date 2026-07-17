@@ -2222,6 +2222,12 @@
   backdrop-filter: blur(8px);
 }
 
+/* display:flex above overrides the UA [hidden] rule, so hiding must be
+   explicit — otherwise the bar lingers at its last position after deselect. */
+.moodboard-grid .annotation-toolbar[hidden] {
+  display: none;
+}
+
 .moodboard-grid .annotation-toolbar__btn {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.06);
