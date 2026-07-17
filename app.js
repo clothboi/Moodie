@@ -82,7 +82,17 @@ function createMoodboardGrid(container, initialOptions = {}) {
     fontSize: 18,
     width: 220,
     align: 'left',
+    font: 'sans',
   };
+  // Font stacks chosen to render consistently in the DOM and on the export
+  // canvas across macOS + Windows (no web fonts to load).
+  const ANNOTATION_FONTS = [
+    { id: 'sans', label: 'Sans', stack: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+    { id: 'serif', label: 'Serif', stack: "Georgia, 'Times New Roman', serif" },
+    { id: 'mono', label: 'Mono', stack: "'Courier New', Courier, monospace" },
+    { id: 'condensed', label: 'Condensed', stack: "'Arial Narrow', 'Helvetica Neue', Arial, sans-serif" },
+    { id: 'display', label: 'Display', stack: "Impact, Haettenschweiler, 'Arial Black', sans-serif" },
+  ];
   const ANNOTATION_ARROW_DEFAULTS = {
     color: '#ffffff',
     weight: 3,
@@ -546,6 +556,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
+  function getFontStack(fontId) {
+    const match = ANNOTATION_FONTS.find((font) => font.id === fontId);
+    return (match ?? ANNOTATION_FONTS[0]).stack;
+  }
+
   function isAnnotation(annotation) {
     if (!annotation || typeof annotation.id !== 'string') {
       return false;
@@ -574,6 +589,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
         ANNOTATION_FONT_MAX,
       );
       const align = ['left', 'center', 'right'].includes(annotation.align) ? annotation.align : ANNOTATION_TEXT_DEFAULTS.align;
+      const font = ANNOTATION_FONTS.some((option) => option.id === annotation.font)
+        ? annotation.font
+        : ANNOTATION_TEXT_DEFAULTS.font;
 
       return {
         id: annotation.id,
@@ -585,6 +603,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         color: normalizeExportBackgroundHex(annotation.color, ANNOTATION_TEXT_DEFAULTS.color),
         fontSize,
         align,
+        font,
       };
     }
 
@@ -2341,7 +2360,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   function drawTextAnnotationToCanvas(context, annotation) {
     const padX = 6;
     const padY = 4;
-    const fontFamily = (refs.root && window.getComputedStyle(refs.root).fontFamily) || 'sans-serif';
+    const fontFamily = getFontStack(annotation.font);
 
     context.save();
     context.font = `${annotation.fontSize}px ${fontFamily}`;
@@ -3818,6 +3837,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       color: ANNOTATION_TEXT_DEFAULTS.color,
       fontSize: ANNOTATION_TEXT_DEFAULTS.fontSize,
       align: ANNOTATION_TEXT_DEFAULTS.align,
+      font: ANNOTATION_TEXT_DEFAULTS.font,
     };
     state.annotations.push(annotation);
     state.activeTool = null;
@@ -4068,6 +4088,66 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return points.filter((_, i) => keep[i]).map((point) => ({ x: point.x, y: point.y }));
   }
 
+  // Reduce a freehand stroke to start + end + at most two apex points. Feeding
+  // so few points into the Catmull-Rom smoother yields a clean, gentle arc
+  // instead of a jittery polyline that traces every hand tremor.
+  function reduceArrowPoints(points) {
+    if (points.length <= 2) {
+      return points.map((point) => ({ x: point.x, y: point.y }));
+    }
+
+    const start = points[0];
+    const end = points[points.length - 1];
+    const chord = Math.hypot(end.x - start.x, end.y - start.y) || 1;
+    // Unit normal to the start→end chord; signed distance tells us which side
+    // of the chord (and how far) each sampled point bows out.
+    const nx = -(end.y - start.y) / chord;
+    const ny = (end.x - start.x) / chord;
+
+    let maxPos = 0;
+    let maxNeg = 0;
+    let posIdx = -1;
+    let negIdx = -1;
+
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const signed = (points[i].x - start.x) * nx + (points[i].y - start.y) * ny;
+      if (signed > maxPos) {
+        maxPos = signed;
+        posIdx = i;
+      }
+      if (signed < maxNeg) {
+        maxNeg = signed;
+        negIdx = i;
+      }
+    }
+
+    const span = maxPos - maxNeg;
+    const startPoint = { x: start.x, y: start.y };
+    const endPoint = { x: end.x, y: end.y };
+
+    // Effectively straight — one clean segment reads better than a forced bend.
+    if (span < chord * 0.06 || span < 6) {
+      return [startPoint, endPoint];
+    }
+
+    const mids = [];
+    const bowsBothWays = maxPos > chord * 0.05 && -maxNeg > chord * 0.05 && posIdx !== -1 && negIdx !== -1;
+
+    if (bowsBothWays) {
+      // S-curve: keep both apexes, ordered as they were drawn.
+      const [a, b] = posIdx < negIdx ? [posIdx, negIdx] : [negIdx, posIdx];
+      mids.push({ x: points[a].x, y: points[a].y }, { x: points[b].x, y: points[b].y });
+    } else {
+      // Simple arc: keep the single furthest apex.
+      const apex = -maxNeg > maxPos ? negIdx : posIdx;
+      if (apex !== -1) {
+        mids.push({ x: points[apex].x, y: points[apex].y });
+      }
+    }
+
+    return [startPoint, ...mids, endPoint];
+  }
+
   function buildSmoothPathData(points) {
     if (points.length < 2) {
       return '';
@@ -4246,7 +4326,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const session = state.arrowDrawSession;
       state.arrowDrawSession = null;
       const simplified = session.raw.length >= 2
-        ? simplifyPath(session.raw, ARROW_SIMPLIFY_TOLERANCE)
+        ? reduceArrowPoints(simplifyPath(session.raw, ARROW_SIMPLIFY_TOLERANCE))
         : session.raw.map((point) => ({ x: point.x, y: point.y }));
 
       if (simplified.length >= 2 && polylineLength(simplified) >= 14) {
@@ -4319,6 +4399,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     content.style.color = annotation.color;
     content.style.fontSize = `${annotation.fontSize}px`;
     content.style.textAlign = annotation.align;
+    content.style.fontFamily = getFontStack(annotation.font);
 
     const isEditing = state.editingAnnotationId === annotation.id;
     const isSelected = state.selectedAnnotationId === annotation.id;
@@ -4449,7 +4530,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     if (state.arrowDrawSession) {
       const session = state.arrowDrawSession;
       let previewPoints = session.raw.length >= 2
-        ? simplifyPath(session.raw, ARROW_SIMPLIFY_TOLERANCE)
+        ? reduceArrowPoints(simplifyPath(session.raw, ARROW_SIMPLIFY_TOLERANCE))
         : session.raw.slice();
       const fromAnnotation = getAnnotationById(session.fromTextId);
 
@@ -4555,8 +4636,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
       el.dataset.forType = annotation.type;
 
       if (annotation.type === 'text') {
+        const activeFont = annotation.font || ANNOTATION_TEXT_DEFAULTS.font;
+        const fontOptions = ANNOTATION_FONTS.map(
+          (font) => `<option value="${font.id}"${font.id === activeFont ? ' selected' : ''}>${font.label}</option>`,
+        ).join('');
         el.innerHTML = `
           <input type="color" class="annotation-toolbar__color" data-atb="color" value="${annotation.color}" aria-label="Text colour" />
+          <select class="annotation-toolbar__select" data-atb="font" aria-label="Font">${fontOptions}</select>
           <button type="button" class="annotation-toolbar__btn" data-atb="font-dec" aria-label="Smaller text">A-</button>
           <button type="button" class="annotation-toolbar__btn" data-atb="font-inc" aria-label="Larger text">A+</button>
           <button type="button" class="annotation-toolbar__btn annotation-toolbar__btn--danger" data-atb="delete" aria-label="Delete text">Delete</button>
@@ -4573,6 +4659,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const colorInput = el.querySelector('[data-atb="color"]');
       if (colorInput && colorInput.value.toLowerCase() !== annotation.color.toLowerCase()) {
         colorInput.value = annotation.color;
+      }
+      if (annotation.type === 'text') {
+        const fontSelect = el.querySelector('[data-atb="font"]');
+        const activeFont = annotation.font || ANNOTATION_TEXT_DEFAULTS.font;
+        if (fontSelect && fontSelect.value !== activeFont) {
+          fontSelect.value = activeFont;
+        }
       }
     }
 
@@ -5930,6 +6023,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
               class="board-hud__button"
               data-role="text-tool"
               aria-pressed="false"
+              title="Text tool (T)"
             >Text</button>
             <button
               type="button"
@@ -6374,9 +6468,15 @@ function createMoodboardGrid(container, initialOptions = {}) {
       }
     });
     addManagedEventListener(refs.annotationToolbar, 'change', (event) => {
-      const control = event.target.closest('[data-atb="color"]');
-      if (control) {
+      const control = event.target.closest('[data-atb]');
+      if (!control) return;
+      const annotation = state.selectedAnnotationId ? getAnnotationById(state.selectedAnnotationId) : null;
+      if (!annotation) return;
+      if (control.dataset.atb === 'color') {
         saveBoardState();
+      } else if (control.dataset.atb === 'font') {
+        updateAnnotation(annotation.id, { font: control.value });
+        renderAnnotations();
       }
     });
     addManagedEventListener(refs.annotationToolbar, 'click', (event) => {
@@ -6624,6 +6724,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     addManagedEventListener(window, 'keydown', (event) => {
       if (!isWidgetActive()) return;
+      if (
+        (event.key === 't' || event.key === 'T') &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !state.editingAnnotationId &&
+        !isInteractiveTarget(event.target) &&
+        !(event.target instanceof Element && event.target.closest('[contenteditable="true"]'))
+      ) {
+        event.preventDefault();
+        toggleTextTool();
+        return;
+      }
       if (event.key === 'Escape') {
         if (state.editingAnnotationId) {
           event.preventDefault();

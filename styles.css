@@ -2246,3 +2246,23 @@
   background: none;
   cursor: pointer;
 }
+
+.moodboard-grid .annotation-toolbar__select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.moodboard-grid .annotation-toolbar__select:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.moodboard-grid .annotation-toolbar__select option {
+  color: #111111;
+}
