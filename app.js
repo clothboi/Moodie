@@ -79,7 +79,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   };
   const ANNOTATION_TEXT_DEFAULTS = {
     color: '#ffffff',
-    fontSize: 18,
+    fontSize: 22,
     width: 220,
     align: 'left',
     font: 'sans',
@@ -201,6 +201,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   const annotationTextEls = new Map();
   let arrowSvgEl = null;
+  // Last font the user picked, so new text boxes keep their choice. Persisted
+  // per board so it survives reloads.
+  let lastPickedFont = loadLastPickedFont();
+  // Latest pointer position (client coords), so the T shortcut can drop a text
+  // box exactly where the cursor is.
+  let lastPointerClient = null;
 
   function addManagedEventListener(target, type, listener, options) {
     target.addEventListener(type, listener, options);
@@ -559,6 +565,30 @@ function createMoodboardGrid(container, initialOptions = {}) {
   function getFontStack(fontId) {
     const match = ANNOTATION_FONTS.find((font) => font.id === fontId);
     return (match ?? ANNOTATION_FONTS[0]).stack;
+  }
+
+  function loadLastPickedFont() {
+    try {
+      const raw = window.localStorage.getItem(`${STORAGE_KEY}.lastFont`);
+      if (raw && ANNOTATION_FONTS.some((font) => font.id === raw)) {
+        return raw;
+      }
+    } catch {
+      // Ignore storage failures.
+    }
+    return ANNOTATION_TEXT_DEFAULTS.font;
+  }
+
+  function setLastPickedFont(fontId) {
+    if (!ANNOTATION_FONTS.some((font) => font.id === fontId)) {
+      return;
+    }
+    lastPickedFont = fontId;
+    try {
+      window.localStorage.setItem(`${STORAGE_KEY}.lastFont`, fontId);
+    } catch {
+      // Ignore storage failures.
+    }
   }
 
   function isAnnotation(annotation) {
@@ -3837,7 +3867,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       color: ANNOTATION_TEXT_DEFAULTS.color,
       fontSize: ANNOTATION_TEXT_DEFAULTS.fontSize,
       align: ANNOTATION_TEXT_DEFAULTS.align,
-      font: ANNOTATION_TEXT_DEFAULTS.font,
+      font: lastPickedFont,
     };
     state.annotations.push(annotation);
     state.activeTool = null;
@@ -3861,6 +3891,30 @@ function createMoodboardGrid(container, initialOptions = {}) {
         placeCaretAtEnd(content);
       }
     });
+  }
+
+  // Drop a text box under the current cursor (or board centre as a fallback)
+  // and jump straight into editing — the T keyboard shortcut path.
+  function createTextAtCursor() {
+    if (state.editingAnnotationId) {
+      return;
+    }
+
+    setActiveTool(null);
+
+    const rect = getStageRect();
+    let clientX;
+    let clientY;
+
+    if (lastPointerClient) {
+      ({ x: clientX, y: clientY } = lastPointerClient);
+    } else {
+      clientX = rect.left + (refs.shell?.clientWidth ?? rect.width) / 2;
+      clientY = rect.top + (refs.shell?.clientHeight ?? rect.height) / 2;
+    }
+
+    const point = getPointWithinBoard(rect, clientX, clientY);
+    createTextAnnotation(point.x, point.y);
   }
 
   function beginEditAnnotation(id) {
@@ -4245,7 +4299,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     renderArrowsSvg();
   }
 
-  function onArrowEndpointPointerDown(event, arrowId) {
+  function onArrowEndpointPointerDown(event, arrowId, pointIndex) {
     if (event.button !== 0) {
       return;
     }
@@ -4253,7 +4307,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     event.stopPropagation();
     event.preventDefault();
     selectAnnotation(arrowId);
-    state.arrowEndpointSession = { id: arrowId };
+    state.arrowEndpointSession = { id: arrowId, pointIndex };
   }
 
   function onArrowHitPointerDown(event, arrowId) {
@@ -4302,8 +4356,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
         return;
       }
 
+      const index = clamp(state.arrowEndpointSession.pointIndex, 0, annotation.points.length - 1);
       const point = boardPointFromEvent(event);
-      annotation.points[annotation.points.length - 1] = { x: point.x, y: point.y };
+      annotation.points[index] = { x: point.x, y: point.y };
       renderArrowsSvg();
       renderAnnotationToolbar();
     }
@@ -4495,17 +4550,30 @@ function createMoodboardGrid(container, initialOptions = {}) {
       svg.appendChild(head);
 
       if (isSelected) {
-        const end = points[points.length - 1];
-        const endpoint = svgEl('circle', {
-          cx: end.x,
-          cy: end.y,
-          r: handleRadius,
-          class: 'annotation-endpoint',
-        });
-        endpoint.style.pointerEvents = 'auto';
-        endpoint.style.cursor = 'grab';
-        endpoint.addEventListener('pointerdown', (event) => onArrowEndpointPointerDown(event, annotation.id));
-        svg.appendChild(endpoint);
+        // A handle for every editable node: the end, plus the 1–2 mid points so
+        // the curve can be reshaped. The start is skipped when the arrow is glued
+        // to a text box, since that end tracks the box automatically.
+        const startEditable = !annotation.fromTextId;
+        const lastIndex = points.length - 1;
+
+        for (let i = 0; i < points.length; i += 1) {
+          if (i === 0 && !startEditable) {
+            continue;
+          }
+
+          const node = points[i];
+          const isEnd = i === lastIndex;
+          const handle = svgEl('circle', {
+            cx: node.x,
+            cy: node.y,
+            r: isEnd ? handleRadius : handleRadius * 0.85,
+            class: isEnd ? 'annotation-endpoint' : 'annotation-endpoint annotation-endpoint--mid',
+          });
+          handle.style.pointerEvents = 'auto';
+          handle.style.cursor = 'grab';
+          handle.addEventListener('pointerdown', (event) => onArrowEndpointPointerDown(event, annotation.id, i));
+          svg.appendChild(handle);
+        }
       }
     }
 
@@ -6426,6 +6494,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
         createTextAnnotation(point.x, point.y);
       }
     });
+    addManagedEventListener(document, 'pointermove', (event) => {
+      lastPointerClient = { x: event.clientX, y: event.clientY };
+    });
     addManagedEventListener(document, 'pointermove', onAnnotationPointerMove);
     addManagedEventListener(document, 'pointerup', onAnnotationPointerUp);
     addManagedEventListener(
@@ -6447,9 +6518,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
           return;
         }
 
+        // Clicking the background dismisses the annotation entirely: commit any
+        // in-progress edit, then clear the selection so the floating toolbar
+        // closes (a bare commit would leave the box selected and the bar open).
         if (state.editingAnnotationId) {
-          commitAnnotationEditing();
-        } else if (state.selectedAnnotationId) {
+          commitAnnotationEditing({ render: false });
+        }
+
+        if (state.selectedAnnotationId) {
           selectAnnotation(null);
         }
       },
@@ -6476,6 +6552,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         saveBoardState();
       } else if (control.dataset.atb === 'font') {
         updateAnnotation(annotation.id, { font: control.value });
+        setLastPickedFont(control.value);
         renderAnnotations();
       }
     });
@@ -6734,7 +6811,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         !(event.target instanceof Element && event.target.closest('[contenteditable="true"]'))
       ) {
         event.preventDefault();
-        toggleTextTool();
+        createTextAtCursor();
         return;
       }
       if (event.key === 'Escape') {
@@ -6757,7 +6834,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
           closeFloatingPanels();
         }
       }
-      if ((event.key === 'Delete' || event.key === 'Backspace') && !isInteractiveTarget(event.target)) {
+      if (
+        (event.key === 'Delete' || event.key === 'Backspace') &&
+        !state.editingAnnotationId &&
+        !isInteractiveTarget(event.target) &&
+        !(event.target instanceof Element && event.target.closest('[contenteditable="true"]'))
+      ) {
         if (state.selectedAnnotationId) {
           event.preventDefault();
           deleteAnnotation(state.selectedAnnotationId);

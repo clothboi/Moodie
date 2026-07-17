@@ -2162,6 +2162,12 @@
   stroke-width: 2;
 }
 
+.moodboard-grid .annotation-endpoint--mid {
+  fill: var(--accent, #6e91b9);
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
 .moodboard-grid .annotation-text {
   position: absolute;
   pointer-events: auto;
