@@ -97,7 +97,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     color: '#ffffff',
     weight: 3,
   };
-  const ANNOTATION_TEXT_MIN_WIDTH = 60;
+  const ANNOTATION_TEXT_MIN_WIDTH = 24;
+  const ANNOTATION_TEXT_MAX_WIDTH = 440;
   const ANNOTATION_FONT_MIN = 10;
   const ANNOTATION_FONT_MAX = 96;
   const ANNOTATION_ARROW_MIN_WEIGHT = 1;
@@ -2427,6 +2428,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   function drawArrowAnnotationToCanvas(context, annotation) {
     const points = resolveArrowPoints(annotation);
+    const geo = buildArrowGeometry(points);
 
     context.save();
     context.strokeStyle = annotation.color;
@@ -2434,8 +2436,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     context.lineWidth = annotation.weight;
     context.lineCap = 'round';
     context.lineJoin = 'round';
-    context.stroke(new Path2D(buildSmoothPathData(points)));
-    context.fill(new Path2D(buildArrowHeadData(points, annotation.weight)));
+    context.stroke(new Path2D(geo.path));
+    context.fill(new Path2D(buildArrowHeadData(geo.end, geo.tangentFrom, annotation.weight)));
     context.restore();
   }
 
@@ -4202,45 +4204,56 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return [startPoint, ...mids, endPoint];
   }
 
-  function buildSmoothPathData(points) {
-    if (points.length < 2) {
-      return '';
+  // Turn the reduced arrow points into a rounded path plus the tangent that
+  // aims the arrowhead. The dominant case is a single gentle bow, rendered as
+  // ONE quadratic bézier that passes through the apex — a clean, symmetric arc
+  // that reads far rounder than a multi-segment spline. S-curves chain
+  // quadratics through the midpoints between their control points.
+  function buildArrowGeometry(points) {
+    const n = points.length;
+    const end = points[n - 1];
+
+    if (n <= 2) {
+      const start = points[0] ?? end;
+      return { path: `M ${start.x} ${start.y} L ${end.x} ${end.y}`, tangentFrom: start, end };
     }
 
-    if (points.length === 2) {
-      return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+    if (n === 3) {
+      const [s, a, e] = points;
+      // Place the control so the curve passes through the apex at its midpoint:
+      // B(0.5) = (s + 2c + e) / 4 = a  ⇒  c = 2a − (s + e) / 2.
+      const c = { x: 2 * a.x - (s.x + e.x) / 2, y: 2 * a.y - (s.y + e.y) / 2 };
+      return { path: `M ${s.x} ${s.y} Q ${c.x} ${c.y} ${e.x} ${e.y}`, tangentFrom: c, end: e };
     }
 
-    let data = `M ${points[0].x} ${points[0].y}`;
+    // n >= 4: interior points act as quadratic controls, joined at the
+    // midpoints between them so the transitions stay C1-smooth.
+    const s = points[0];
+    let path = `M ${s.x} ${s.y}`;
 
-    for (let i = 0; i < points.length - 1; i += 1) {
-      const p0 = points[i - 1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] || p2;
-      const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
-      const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
-      data += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x} ${p2.y}`;
+    for (let i = 1; i < n - 1; i += 1) {
+      const ctrl = points[i];
+      const anchor =
+        i === n - 2
+          ? end
+          : { x: (points[i].x + points[i + 1].x) / 2, y: (points[i].y + points[i + 1].y) / 2 };
+      path += ` Q ${ctrl.x} ${ctrl.y} ${anchor.x} ${anchor.y}`;
     }
 
-    return data;
+    return { path, tangentFrom: points[n - 2], end };
   }
 
-  function buildArrowHeadData(points, weight) {
-    const end = points[points.length - 1];
-    let prev = points[points.length - 2];
+  function buildArrowHeadData(end, tangentFrom, weight) {
+    let dx = end.x - tangentFrom.x;
+    let dy = end.y - tangentFrom.y;
 
-    // Walk back to the first point that is distinct from the end for a stable angle.
-    for (let i = points.length - 2; i >= 0; i -= 1) {
-      if (Math.hypot(end.x - points[i].x, end.y - points[i].y) > 0.5) {
-        prev = points[i];
-        break;
-      }
+    // Degenerate tangent (control landed on the tip): fall back to horizontal.
+    if (Math.hypot(dx, dy) < 0.5) {
+      dx = 1;
+      dy = 0;
     }
 
-    const angle = Math.atan2(end.y - prev.y, end.x - prev.x);
+    const angle = Math.atan2(dy, dx);
     const size = weight * 3 + 7;
     const spread = 0.5;
     const left = { x: end.x + Math.cos(angle + Math.PI - spread) * size, y: end.y + Math.sin(angle + Math.PI - spread) * size };
@@ -4448,7 +4461,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
   function updateTextBoxElement(el, annotation) {
     el.style.left = `${annotation.x}px`;
     el.style.top = `${annotation.y}px`;
-    el.style.width = `${annotation.width}px`;
+    // Hug the text: the box grows with its content (up to a cap, then wraps)
+    // instead of holding a fixed width, so nothing floats in empty space and an
+    // arrow glued to the box starts right at the glyphs.
+    el.style.width = 'max-content';
+    el.style.maxWidth = `${ANNOTATION_TEXT_MAX_WIDTH}px`;
 
     const content = el.querySelector('.annotation-text__content');
     content.style.color = annotation.color;
@@ -4467,6 +4484,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
     el.classList.toggle('is-selected', isSelected && !isEditing);
     el.classList.toggle('is-editing', isEditing);
     el.classList.toggle('is-empty', !annotation.text && !isEditing);
+
+    // Reading offsetWidth reflows synchronously, so this reflects the fitted
+    // size. Store it so getTextBoxRect / the arrow nub / export all agree with
+    // what's on screen. (Kept within the same render pass before arrows draw.)
+    const measured = el.offsetWidth;
+    if (measured > 0) {
+      annotation.width = clamp(measured, ANNOTATION_TEXT_MIN_WIDTH, ANNOTATION_TEXT_MAX_WIDTH);
+    }
   }
 
   function ensureArrowSvg() {
@@ -4512,7 +4537,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       }
 
       const points = resolveArrowPoints(annotation);
-      const pathData = buildSmoothPathData(points);
+      const geo = buildArrowGeometry(points);
+      const pathData = geo.path;
       const isSelected = state.selectedAnnotationId === annotation.id;
 
       const hit = svgEl('path', {
@@ -4540,7 +4566,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       svg.appendChild(line);
 
       const head = svgEl('path', {
-        d: buildArrowHeadData(points, annotation.weight),
+        d: buildArrowHeadData(geo.end, geo.tangentFrom, annotation.weight),
         fill: annotation.color,
         stroke: annotation.color,
         'stroke-width': annotation.weight * 0.4,
@@ -4603,13 +4629,17 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const fromAnnotation = getAnnotationById(session.fromTextId);
 
       if (fromAnnotation && fromAnnotation.type === 'text' && previewPoints.length) {
-        const anchor = rectEdgePoint(getTextBoxRect(fromAnnotation), previewPoints[0]);
-        previewPoints = [anchor, ...previewPoints];
+        // Anchor the start to the box edge by REPLACING the first point (not
+        // prepending) so the preview keeps the same point count — and therefore
+        // the same rounded shape — as the committed arrow.
+        const toward = previewPoints[1] ?? previewPoints[previewPoints.length - 1];
+        previewPoints = previewPoints.map((point) => ({ x: point.x, y: point.y }));
+        previewPoints[0] = rectEdgePoint(getTextBoxRect(fromAnnotation), toward);
       }
 
       if (previewPoints.length >= 2) {
         const preview = svgEl('path', {
-          d: buildSmoothPathData(previewPoints),
+          d: buildArrowGeometry(previewPoints).path,
           fill: 'none',
           stroke: ANNOTATION_ARROW_DEFAULTS.color,
           'stroke-width': ANNOTATION_ARROW_DEFAULTS.weight,
