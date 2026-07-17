@@ -2121,3 +2121,128 @@
   }
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Annotations: free-floating text boxes + arrows above the grid       */
+/* ------------------------------------------------------------------ */
+.moodboard-grid .board-annotation-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+  pointer-events: none;
+  z-index: 45;
+  overflow: visible;
+}
+
+.moodboard-grid .board-annotation-layer.is-tool-active {
+  pointer-events: auto;
+  cursor: text;
+}
+
+.moodboard-grid .board-annotation-arrows {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.moodboard-grid .annotation-arrow-nub {
+  fill: var(--accent, #6e91b9);
+  stroke: #ffffff;
+  stroke-width: 1.5;
+}
+
+.moodboard-grid .annotation-endpoint {
+  fill: #ffffff;
+  stroke: var(--accent, #6e91b9);
+  stroke-width: 2;
+}
+
+.moodboard-grid .annotation-text {
+  position: absolute;
+  pointer-events: auto;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: grab;
+  min-height: 1em;
+}
+
+.moodboard-grid .annotation-text.is-selected {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.moodboard-grid .annotation-text.is-editing {
+  cursor: text;
+  border-color: var(--accent, #6e91b9);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.moodboard-grid .annotation-text__content {
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font-family: inherit;
+  line-height: 1.3;
+  min-width: 1ch;
+  min-height: 1em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.moodboard-grid .annotation-text.is-empty .annotation-text__content::before {
+  content: 'Text';
+  opacity: 0.5;
+}
+
+.moodboard-grid .annotation-toolbar {
+  position: fixed;
+  z-index: 2500;
+  transform: translate(-50%, calc(-100% - 12px));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(20, 23, 27, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+}
+
+.moodboard-grid .annotation-toolbar__btn {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  border-radius: 7px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.moodboard-grid .annotation-toolbar__btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.moodboard-grid .annotation-toolbar__btn--danger {
+  color: #ff9a9a;
+}
+
+.moodboard-grid .annotation-toolbar__color {
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  background: none;
+  cursor: pointer;
+}

@@ -77,6 +77,22 @@ function createMoodboardGrid(container, initialOptions = {}) {
     offsetX: 0,
     offsetY: 0,
   };
+  const ANNOTATION_TEXT_DEFAULTS = {
+    color: '#ffffff',
+    fontSize: 18,
+    width: 220,
+    align: 'left',
+  };
+  const ANNOTATION_ARROW_DEFAULTS = {
+    color: '#ffffff',
+    weight: 3,
+  };
+  const ANNOTATION_TEXT_MIN_WIDTH = 60;
+  const ANNOTATION_FONT_MIN = 10;
+  const ANNOTATION_FONT_MAX = 96;
+  const ANNOTATION_ARROW_MIN_WEIGHT = 1;
+  const ANNOTATION_ARROW_MAX_WEIGHT = 14;
+  const ARROW_SIMPLIFY_TOLERANCE = 4;
   const LAYOUT_MIN_PX = 0;
   const LAYOUT_MAX_PX = 24;
   const LAYOUT_STEP_PX = 2;
@@ -125,6 +141,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const state = {
     items: persistedBoardState.items,
     layout: persistedBoardState.layout,
+    annotations: persistedBoardState.annotations,
+    activeTool: null,
+    selectedAnnotationId: null,
+    editingAnnotationId: null,
+    annotationDragSession: null,
+    arrowDrawSession: null,
+    arrowEndpointSession: null,
     zoom: 1,
     isUtilityPanelOpen: false,
     activeUtilityTab: 'layout',
@@ -165,6 +188,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
     host: container,
     root: null,
   };
+
+  const annotationTextEls = new Map();
+  let arrowSvgEl = null;
 
   function addManagedEventListener(target, type, listener, options) {
     target.addEventListener(type, listener, options);
@@ -520,10 +546,75 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
+  function isAnnotation(annotation) {
+    if (!annotation || typeof annotation.id !== 'string') {
+      return false;
+    }
+
+    if (annotation.type === 'text') {
+      return typeof annotation.x === 'number' && typeof annotation.y === 'number';
+    }
+
+    if (annotation.type === 'arrow') {
+      return (
+        Array.isArray(annotation.points) &&
+        annotation.points.length >= 2 &&
+        annotation.points.every((point) => point && typeof point.x === 'number' && typeof point.y === 'number')
+      );
+    }
+
+    return false;
+  }
+
+  function normalizeAnnotation(annotation) {
+    if (annotation.type === 'text') {
+      const fontSize = clamp(
+        Math.round(typeof annotation.fontSize === 'number' ? annotation.fontSize : ANNOTATION_TEXT_DEFAULTS.fontSize),
+        ANNOTATION_FONT_MIN,
+        ANNOTATION_FONT_MAX,
+      );
+      const align = ['left', 'center', 'right'].includes(annotation.align) ? annotation.align : ANNOTATION_TEXT_DEFAULTS.align;
+
+      return {
+        id: annotation.id,
+        type: 'text',
+        x: annotation.x,
+        y: annotation.y,
+        width: Math.max(ANNOTATION_TEXT_MIN_WIDTH, typeof annotation.width === 'number' ? annotation.width : ANNOTATION_TEXT_DEFAULTS.width),
+        text: typeof annotation.text === 'string' ? annotation.text : '',
+        color: normalizeExportBackgroundHex(annotation.color, ANNOTATION_TEXT_DEFAULTS.color),
+        fontSize,
+        align,
+      };
+    }
+
+    return {
+      id: annotation.id,
+      type: 'arrow',
+      fromTextId: typeof annotation.fromTextId === 'string' ? annotation.fromTextId : null,
+      points: annotation.points.map((point) => ({ x: point.x, y: point.y })),
+      color: normalizeExportBackgroundHex(annotation.color, ANNOTATION_ARROW_DEFAULTS.color),
+      weight: clamp(
+        typeof annotation.weight === 'number' ? annotation.weight : ANNOTATION_ARROW_DEFAULTS.weight,
+        ANNOTATION_ARROW_MIN_WEIGHT,
+        ANNOTATION_ARROW_MAX_WEIGHT,
+      ),
+    };
+  }
+
+  function normalizeAnnotations(annotations) {
+    if (!Array.isArray(annotations)) {
+      return [];
+    }
+
+    return annotations.filter(isAnnotation).map(normalizeAnnotation);
+  }
+
   function createEmptyBoardState() {
     return {
       items: [],
       layout: { ...DEFAULT_LAYOUT },
+      annotations: [],
     };
   }
 
@@ -1994,56 +2085,142 @@ function createMoodboardGrid(container, initialOptions = {}) {
     );
   }
 
-  function loadBoardState() {
-    const emptyBoardState = createEmptyBoardState();
+  function parseBoardState(parsed) {
+    if (!parsed || !Array.isArray(parsed.items)) {
+      return null;
+    }
 
+    const items = parsed.items.filter(isBoardItem).map(normalizeBoardItem);
+
+    if (parsed.version === 1) {
+      return {
+        items,
+        layout: { ...DEFAULT_LAYOUT },
+        annotations: [],
+      };
+    }
+
+    if (parsed.version === 2 || parsed.version === CURRENT_VERSION) {
+      return {
+        items,
+        layout: normalizeLayout(parsed.layout),
+        annotations: normalizeAnnotations(parsed.annotations),
+      };
+    }
+
+    return null;
+  }
+
+  function loadBoardState() {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
 
       if (!raw) {
-        return emptyBoardState;
+        return createEmptyBoardState();
       }
 
-      const parsed = JSON.parse(raw);
-
-      if (!Array.isArray(parsed.items)) {
-        return emptyBoardState;
-      }
-
-      const items = parsed.items.filter(isBoardItem).map(normalizeBoardItem);
-
-      if (parsed.version === 1) {
-        return {
-          items,
-          layout: { ...DEFAULT_LAYOUT },
-        };
-      }
-
-      if (parsed.version === 2 || parsed.version === CURRENT_VERSION) {
-        return {
-          items,
-          layout: normalizeLayout(parsed.layout),
-        };
-      }
-
-      return emptyBoardState;
+      return parseBoardState(JSON.parse(raw)) ?? createEmptyBoardState();
     } catch {
-      return emptyBoardState;
+      return createEmptyBoardState();
     }
+  }
+
+  function serializeBoard() {
+    return {
+      version: CURRENT_VERSION,
+      items: state.items.map(normalizeBoardItem),
+      layout: normalizeLayout(state.layout),
+      annotations: state.annotations.map(normalizeAnnotation),
+    };
   }
 
   function saveBoardState() {
     try {
-      window.localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          version: CURRENT_VERSION,
-          items: state.items.map(normalizeBoardItem),
-          layout: normalizeLayout(state.layout),
-        }),
-      );
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeBoard()));
     } catch {
       // Ignore storage failures.
+    }
+  }
+
+  function applyBoardState(next) {
+    state.items = next.items;
+    state.layout = next.layout;
+    state.annotations = next.annotations ?? [];
+    state.exportBackgroundHex = next.layout.exportBackgroundHex;
+    state.exportBackgroundHexDraft = next.layout.exportBackgroundHex;
+    state.activeTool = null;
+    state.selectedAnnotationId = null;
+    state.editingAnnotationId = null;
+    state.annotationDragSession = null;
+    state.arrowDrawSession = null;
+    state.arrowEndpointSession = null;
+    state.isMultiSelectMode = false;
+    state.viewportTransform = null;
+    state.dragSession = null;
+    state.resizeSession = null;
+    state.panSession = null;
+    state.marqueeSession = null;
+    state.cropAnchorSession = null;
+    state.zoom = getDefaultZoom();
+    clearSelection();
+    setFloatingPanels(false, false);
+    clearWidgetInteractionStates();
+    saveBoardState();
+    render();
+  }
+
+  function saveBoardToFile() {
+    try {
+      const payload = JSON.stringify(serializeBoard(), null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeTitle =
+        (settings.title || 'moodboard')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'moodboard';
+      const stamp = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `${safeTitle}-${stamp}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setExportStatus('Board saved to file', 'success', { resetAfter: EXPORT_STATUS_DURATION_MS });
+    } catch {
+      setExportStatus('Could not save the board file', 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
+    }
+  }
+
+  function openBoardPicker() {
+    refs.openInput?.click();
+  }
+
+  async function loadBoardFromFile(file) {
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const next = parseBoardState(JSON.parse(text));
+
+      if (!next) {
+        setExportStatus('That file is not a valid board', 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
+        return;
+      }
+
+      const hasContent = state.items.length > 0 || state.annotations.length > 0;
+
+      if (hasContent && !window.confirm('Open this board? It will replace what is currently on the board.')) {
+        return;
+      }
+
+      applyBoardState(next);
+      setExportStatus('Board loaded', 'success', { resetAfter: EXPORT_STATUS_DURATION_MS });
+    } catch {
+      setExportStatus('Could not read that board file', 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
     }
   }
 
@@ -2078,6 +2255,191 @@ function createMoodboardGrid(container, initialOptions = {}) {
       width: maxRight - minLeft,
       height: maxBottom - minTop,
     };
+  }
+
+  function getAnnotationsBounds() {
+    let minLeft = Number.POSITIVE_INFINITY;
+    let minTop = Number.POSITIVE_INFINITY;
+    let maxRight = Number.NEGATIVE_INFINITY;
+    let maxBottom = Number.NEGATIVE_INFINITY;
+    let has = false;
+
+    for (const annotation of state.annotations) {
+      if (annotation.type === 'text') {
+        const rect = getTextBoxRect(annotation);
+        minLeft = Math.min(minLeft, rect.left);
+        minTop = Math.min(minTop, rect.top);
+        maxRight = Math.max(maxRight, rect.left + rect.width);
+        maxBottom = Math.max(maxBottom, rect.top + rect.height);
+        has = true;
+      } else if (annotation.type === 'arrow') {
+        const points = resolveArrowPoints(annotation);
+        const margin = annotation.weight * 3 + 8;
+        for (const point of points) {
+          minLeft = Math.min(minLeft, point.x - margin);
+          minTop = Math.min(minTop, point.y - margin);
+          maxRight = Math.max(maxRight, point.x + margin);
+          maxBottom = Math.max(maxBottom, point.y + margin);
+        }
+        has = true;
+      }
+    }
+
+    if (!has) {
+      return null;
+    }
+
+    const pad = 8;
+    return {
+      left: minLeft - pad,
+      top: minTop - pad,
+      right: maxRight + pad,
+      bottom: maxBottom + pad,
+      width: maxRight - minLeft + pad * 2,
+      height: maxBottom - minTop + pad * 2,
+    };
+  }
+
+  function unionBounds(a, b) {
+    if (!a) return b;
+    if (!b) return a;
+    const left = Math.min(a.left, b.left);
+    const top = Math.min(a.top, b.top);
+    const right = Math.max(a.right, b.right);
+    const bottom = Math.max(a.bottom, b.bottom);
+    return { left, top, right, bottom, width: right - left, height: bottom - top };
+  }
+
+  function getExportContentBounds(items = state.items) {
+    return unionBounds(getClusterBounds(items), getAnnotationsBounds());
+  }
+
+  function wrapCanvasText(context, text, maxWidth) {
+    const lines = [];
+
+    for (const paragraph of String(text).split('\n')) {
+      const words = paragraph.split(' ');
+      let current = '';
+
+      for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+
+        if (current && context.measureText(candidate).width > maxWidth) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = candidate;
+        }
+      }
+
+      lines.push(current);
+    }
+
+    return lines;
+  }
+
+  function drawTextAnnotationToCanvas(context, annotation) {
+    const padX = 6;
+    const padY = 4;
+    const fontFamily = (refs.root && window.getComputedStyle(refs.root).fontFamily) || 'sans-serif';
+
+    context.save();
+    context.font = `${annotation.fontSize}px ${fontFamily}`;
+    context.textBaseline = 'top';
+    context.fillStyle = annotation.color;
+    context.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    context.shadowBlur = 2;
+    context.shadowOffsetY = 1;
+
+    const maxWidth = Math.max(10, annotation.width - padX * 2 - 2);
+    const lines = wrapCanvasText(context, annotation.text, maxWidth);
+    const lineHeight = annotation.fontSize * 1.3;
+    let y = annotation.y + padY;
+
+    for (const line of lines) {
+      let x = annotation.x + padX;
+
+      if (annotation.align === 'center') {
+        x = annotation.x + annotation.width / 2;
+        context.textAlign = 'center';
+      } else if (annotation.align === 'right') {
+        x = annotation.x + annotation.width - padX;
+        context.textAlign = 'right';
+      } else {
+        context.textAlign = 'left';
+      }
+
+      context.fillText(line, x, y);
+      y += lineHeight;
+    }
+
+    context.restore();
+  }
+
+  function drawArrowAnnotationToCanvas(context, annotation) {
+    const points = resolveArrowPoints(annotation);
+
+    context.save();
+    context.strokeStyle = annotation.color;
+    context.fillStyle = annotation.color;
+    context.lineWidth = annotation.weight;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.stroke(new Path2D(buildSmoothPathData(points)));
+    context.fill(new Path2D(buildArrowHeadData(points, annotation.weight)));
+    context.restore();
+  }
+
+  function drawAnnotationsToCanvas(context, bounds) {
+    if (!state.annotations.length) {
+      return;
+    }
+
+    context.save();
+    context.translate(-bounds.left, -bounds.top);
+
+    for (const annotation of state.annotations) {
+      if (annotation.type === 'arrow') {
+        drawArrowAnnotationToCanvas(context, annotation);
+      }
+    }
+
+    for (const annotation of state.annotations) {
+      if (annotation.type === 'text') {
+        drawTextAnnotationToCanvas(context, annotation);
+      }
+    }
+
+    context.restore();
+  }
+
+  async function buildAnnotationOverlayPngBytes(bounds, scale = 2) {
+    if (!state.annotations.length) {
+      return null;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bounds.width * scale));
+    canvas.height = Math.max(1, Math.round(bounds.height * scale));
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      return null;
+    }
+
+    context.scale(scale, scale);
+    drawAnnotationsToCanvas(context, bounds);
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error('Annotation overlay failed'));
+          return;
+        }
+
+        blob.arrayBuffer().then(resolve, reject);
+      }, 'image/png');
+    });
   }
 
   function getStageRect() {
@@ -2233,7 +2595,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   async function createExportRenderSurface({
     items = state.items,
-    bounds = getClusterBounds(items),
+    bounds = getExportContentBounds(items),
     targetEdge = state.exportTargetEdge,
     includeBackground = state.exportIncludeBackground,
     backgroundHex = state.exportBackgroundHex,
@@ -2301,6 +2663,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       context.restore();
     }
 
+    drawAnnotationsToCanvas(context, bounds);
+
     context.setTransform(1, 0, 0, 1, 0, 0);
 
     return {
@@ -2315,7 +2679,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
-    const bounds = getClusterBounds();
+    const bounds = getExportContentBounds();
 
     if (!bounds) {
       exportPreviewRequestId += 1;
@@ -2366,7 +2730,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     positionFloatingPanel(refs.exportPanel);
 
-    const bounds = getClusterBounds();
+    const bounds = getExportContentBounds();
     const currentWidth = bounds ? Math.max(1, Math.round(bounds.width)) : 0;
     const currentHeight = bounds ? Math.max(1, Math.round(bounds.height)) : 0;
     const output = getExportOutputSize(bounds, state.exportTargetEdge);
@@ -3185,6 +3549,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.stage.style.transform = state.isMobileMode
       ? `translate(${viewportTransform.offsetX}px, ${viewportTransform.offsetY}px) scale(${viewportTransform.zoom})`
       : `scale(${state.zoom})`;
+    if (refs.annotationLayer) {
+      refs.annotationLayer.style.width = `${GRID_WIDTH}px`;
+      refs.annotationLayer.style.height = `${logicalBoardHeight}px`;
+      refs.annotationLayer.style.transform = refs.stage.style.transform;
+      refs.annotationLayer.style.setProperty('--inv-zoom', String(1 / Math.max(state.zoom, 0.0001)));
+    }
     refs.stage.style.setProperty('--board-radius', `${getRadiusPx()}px`);
     refs.stage.style.setProperty('--board-backdrop-color', state.exportBackgroundHex);
     refs.stage.style.setProperty('--grid-line-color', gridPalette.lineColor);
@@ -3389,9 +3759,832 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Annotations: free-floating text boxes + arrows above the grid
+  // ---------------------------------------------------------------------------
+
+  function getAnnotationById(id) {
+    return state.annotations.find((annotation) => annotation.id === id) ?? null;
+  }
+
+  function boardPointFromEvent(event) {
+    return getPointWithinBoard(getStageRect(), event.clientX, event.clientY);
+  }
+
+  function setActiveTool(tool) {
+    state.activeTool = tool;
+
+    if (tool) {
+      selectAnnotation(null, { render: false });
+    }
+
+    if (refs.textTool) {
+      refs.textTool.setAttribute('aria-pressed', String(tool === 'text'));
+      refs.textTool.classList.toggle('board-hud__button--active', tool === 'text');
+    }
+
+    render();
+  }
+
+  function toggleTextTool() {
+    setActiveTool(state.activeTool === 'text' ? null : 'text');
+  }
+
+  function selectAnnotation(id, { render: shouldRender = true } = {}) {
+    if (state.editingAnnotationId && state.editingAnnotationId !== id) {
+      commitAnnotationEditing({ render: false });
+    }
+
+    state.selectedAnnotationId = id;
+
+    if (id) {
+      state.selectedItemIds = [];
+      state.selectionAnchorId = null;
+    }
+
+    if (shouldRender) {
+      render();
+    }
+  }
+
+  function createTextAnnotation(x, y) {
+    const annotation = {
+      id: createItemId(),
+      type: 'text',
+      x,
+      y,
+      width: ANNOTATION_TEXT_DEFAULTS.width,
+      text: '',
+      color: ANNOTATION_TEXT_DEFAULTS.color,
+      fontSize: ANNOTATION_TEXT_DEFAULTS.fontSize,
+      align: ANNOTATION_TEXT_DEFAULTS.align,
+    };
+    state.annotations.push(annotation);
+    state.activeTool = null;
+
+    if (refs.textTool) {
+      refs.textTool.setAttribute('aria-pressed', 'false');
+      refs.textTool.classList.remove('board-hud__button--active');
+    }
+
+    state.selectedAnnotationId = annotation.id;
+    state.editingAnnotationId = annotation.id;
+    saveBoardState();
+    render();
+
+    window.requestAnimationFrame(() => {
+      const el = annotationTextEls.get(annotation.id);
+      const content = el?.querySelector('.annotation-text__content');
+
+      if (content) {
+        content.focus();
+        placeCaretAtEnd(content);
+      }
+    });
+  }
+
+  function beginEditAnnotation(id) {
+    const annotation = getAnnotationById(id);
+
+    if (!annotation || annotation.type !== 'text') {
+      return;
+    }
+
+    state.selectedAnnotationId = id;
+    state.editingAnnotationId = id;
+    render();
+
+    window.requestAnimationFrame(() => {
+      const el = annotationTextEls.get(id);
+      const content = el?.querySelector('.annotation-text__content');
+
+      if (content) {
+        content.focus();
+        placeCaretAtEnd(content);
+      }
+    });
+  }
+
+  function commitAnnotationEditing({ render: shouldRender = true } = {}) {
+    const id = state.editingAnnotationId;
+
+    if (!id) {
+      return;
+    }
+
+    const annotation = getAnnotationById(id);
+    const el = annotationTextEls.get(id);
+    const content = el?.querySelector('.annotation-text__content');
+
+    if (annotation && content) {
+      annotation.text = content.innerText.replace(/ /g, ' ').trim();
+    }
+
+    state.editingAnnotationId = null;
+
+    // Drop empty text boxes so a stray click does not litter the board.
+    // deleteAnnotation also freezes/ungues any arrows glued to this box.
+    if (annotation && annotation.type === 'text' && !annotation.text) {
+      deleteAnnotation(id);
+      return;
+    }
+
+    saveBoardState();
+
+    if (shouldRender) {
+      render();
+    }
+  }
+
+  function deleteAnnotation(id) {
+    const target = getAnnotationById(id);
+
+    if (!target) {
+      return;
+    }
+
+    if (target.type === 'text') {
+      for (const annotation of state.annotations) {
+        if (annotation.type === 'arrow' && annotation.fromTextId === id) {
+          annotation.points = resolveArrowPoints(annotation);
+          annotation.fromTextId = null;
+        }
+      }
+    }
+
+    if (state.editingAnnotationId === id) {
+      state.editingAnnotationId = null;
+    }
+
+    state.annotations = state.annotations.filter((annotation) => annotation.id !== id);
+
+    if (state.selectedAnnotationId === id) {
+      state.selectedAnnotationId = null;
+    }
+
+    saveBoardState();
+    render();
+  }
+
+  function updateAnnotation(id, patch, { save = true } = {}) {
+    const annotation = getAnnotationById(id);
+
+    if (!annotation) {
+      return;
+    }
+
+    Object.assign(annotation, patch);
+
+    if (save) {
+      saveBoardState();
+    }
+  }
+
+  function placeCaretAtEnd(element) {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  function getTextBoxHeight(annotation) {
+    const el = annotationTextEls.get(annotation.id);
+
+    if (el && el.offsetHeight) {
+      return el.offsetHeight;
+    }
+
+    return Math.max(annotation.fontSize * 1.6, 24);
+  }
+
+  function getTextBoxRect(annotation) {
+    return {
+      left: annotation.x,
+      top: annotation.y,
+      width: annotation.width,
+      height: getTextBoxHeight(annotation),
+    };
+  }
+
+  function rectEdgePoint(rect, toward) {
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = toward.x - cx;
+    const dy = toward.y - cy;
+
+    if (dx === 0 && dy === 0) {
+      return { x: rect.left + rect.width, y: cy };
+    }
+
+    const halfW = rect.width / 2;
+    const halfH = rect.height / 2;
+    const scale = 1 / Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH);
+
+    return { x: cx + dx * scale, y: cy + dy * scale };
+  }
+
+  function resolveArrowPoints(arrow) {
+    const points = arrow.points.map((point) => ({ x: point.x, y: point.y }));
+
+    if (arrow.fromTextId) {
+      const annotation = getAnnotationById(arrow.fromTextId);
+
+      if (annotation && annotation.type === 'text') {
+        const toward = points[1] ?? points[points.length - 1];
+        points[0] = rectEdgePoint(getTextBoxRect(annotation), toward);
+      }
+    }
+
+    return points;
+  }
+
+  function polylineLength(points) {
+    let total = 0;
+
+    for (let i = 1; i < points.length; i += 1) {
+      total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    }
+
+    return total;
+  }
+
+  function squareSegmentDistance(point, start, end) {
+    let x = start.x;
+    let y = start.y;
+    let dx = end.x - x;
+    let dy = end.y - y;
+
+    if (dx !== 0 || dy !== 0) {
+      const t = ((point.x - x) * dx + (point.y - y) * dy) / (dx * dx + dy * dy);
+
+      if (t > 1) {
+        x = end.x;
+        y = end.y;
+      } else if (t > 0) {
+        x += dx * t;
+        y += dy * t;
+      }
+    }
+
+    dx = point.x - x;
+    dy = point.y - y;
+
+    return dx * dx + dy * dy;
+  }
+
+  function simplifyPath(points, tolerance) {
+    if (points.length <= 2) {
+      return points.map((point) => ({ x: point.x, y: point.y }));
+    }
+
+    const squareTolerance = tolerance * tolerance;
+    const keep = new Array(points.length).fill(false);
+    keep[0] = true;
+    keep[points.length - 1] = true;
+    const stack = [[0, points.length - 1]];
+
+    while (stack.length) {
+      const [first, last] = stack.pop();
+      let maxSquare = 0;
+      let index = -1;
+
+      for (let i = first + 1; i < last; i += 1) {
+        const square = squareSegmentDistance(points[i], points[first], points[last]);
+
+        if (square > maxSquare) {
+          maxSquare = square;
+          index = i;
+        }
+      }
+
+      if (maxSquare > squareTolerance && index !== -1) {
+        keep[index] = true;
+        stack.push([first, index], [index, last]);
+      }
+    }
+
+    return points.filter((_, i) => keep[i]).map((point) => ({ x: point.x, y: point.y }));
+  }
+
+  function buildSmoothPathData(points) {
+    if (points.length < 2) {
+      return '';
+    }
+
+    if (points.length === 2) {
+      return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+    }
+
+    let data = `M ${points[0].x} ${points[0].y}`;
+
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const p0 = points[i - 1] || points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      data += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x} ${p2.y}`;
+    }
+
+    return data;
+  }
+
+  function buildArrowHeadData(points, weight) {
+    const end = points[points.length - 1];
+    let prev = points[points.length - 2];
+
+    // Walk back to the first point that is distinct from the end for a stable angle.
+    for (let i = points.length - 2; i >= 0; i -= 1) {
+      if (Math.hypot(end.x - points[i].x, end.y - points[i].y) > 0.5) {
+        prev = points[i];
+        break;
+      }
+    }
+
+    const angle = Math.atan2(end.y - prev.y, end.x - prev.x);
+    const size = weight * 3 + 7;
+    const spread = 0.5;
+    const left = { x: end.x + Math.cos(angle + Math.PI - spread) * size, y: end.y + Math.sin(angle + Math.PI - spread) * size };
+    const right = { x: end.x + Math.cos(angle + Math.PI + spread) * size, y: end.y + Math.sin(angle + Math.PI + spread) * size };
+
+    return `M ${end.x} ${end.y} L ${left.x} ${left.y} L ${right.x} ${right.y} Z`;
+  }
+
+  function getArrowNubPosition(annotation) {
+    const rect = getTextBoxRect(annotation);
+    return { x: rect.left + rect.width, y: rect.top + rect.height / 2 };
+  }
+
+  // --- Annotation pointer sessions -------------------------------------------
+
+  function onTextBoxPointerDown(event, id) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    if (state.editingAnnotationId === id) {
+      return;
+    }
+
+    event.stopPropagation();
+    event.preventDefault();
+    selectAnnotation(id);
+
+    const annotation = getAnnotationById(id);
+
+    if (!annotation || annotation.type !== 'text') {
+      return;
+    }
+
+    const point = boardPointFromEvent(event);
+    state.annotationDragSession = {
+      id,
+      grabX: point.x - annotation.x,
+      grabY: point.y - annotation.y,
+      moved: false,
+    };
+  }
+
+  function onArrowNubPointerDown(event, textId) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.stopPropagation();
+    event.preventDefault();
+    const point = boardPointFromEvent(event);
+    state.arrowDrawSession = {
+      fromTextId: textId,
+      raw: [point],
+    };
+    renderArrowsSvg();
+  }
+
+  function onArrowEndpointPointerDown(event, arrowId) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.stopPropagation();
+    event.preventDefault();
+    selectAnnotation(arrowId);
+    state.arrowEndpointSession = { id: arrowId };
+  }
+
+  function onArrowHitPointerDown(event, arrowId) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.stopPropagation();
+    selectAnnotation(arrowId);
+  }
+
+  function onAnnotationPointerMove(event) {
+    if (state.annotationDragSession) {
+      const session = state.annotationDragSession;
+      const annotation = getAnnotationById(session.id);
+
+      if (!annotation) {
+        return;
+      }
+
+      const point = boardPointFromEvent(event);
+      annotation.x = point.x - session.grabX;
+      annotation.y = point.y - session.grabY;
+      session.moved = true;
+      renderAnnotations();
+      renderAnnotationToolbar();
+      return;
+    }
+
+    if (state.arrowDrawSession) {
+      const session = state.arrowDrawSession;
+      const point = boardPointFromEvent(event);
+      const last = session.raw[session.raw.length - 1];
+
+      if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 2) {
+        session.raw.push(point);
+        renderArrowsSvg();
+      }
+      return;
+    }
+
+    if (state.arrowEndpointSession) {
+      const annotation = getAnnotationById(state.arrowEndpointSession.id);
+
+      if (!annotation || annotation.type !== 'arrow') {
+        return;
+      }
+
+      const point = boardPointFromEvent(event);
+      annotation.points[annotation.points.length - 1] = { x: point.x, y: point.y };
+      renderArrowsSvg();
+      renderAnnotationToolbar();
+    }
+  }
+
+  function onAnnotationPointerUp() {
+    if (state.annotationDragSession) {
+      const moved = state.annotationDragSession.moved;
+      state.annotationDragSession = null;
+
+      if (moved) {
+        saveBoardState();
+      }
+
+      renderAnnotationToolbar();
+      return;
+    }
+
+    if (state.arrowDrawSession) {
+      const session = state.arrowDrawSession;
+      state.arrowDrawSession = null;
+      const simplified = session.raw.length >= 2
+        ? simplifyPath(session.raw, ARROW_SIMPLIFY_TOLERANCE)
+        : session.raw.map((point) => ({ x: point.x, y: point.y }));
+
+      if (simplified.length >= 2 && polylineLength(simplified) >= 14) {
+        const arrow = {
+          id: createItemId(),
+          type: 'arrow',
+          fromTextId: session.fromTextId,
+          points: simplified,
+          color: ANNOTATION_ARROW_DEFAULTS.color,
+          weight: ANNOTATION_ARROW_DEFAULTS.weight,
+        };
+        state.annotations.push(arrow);
+        state.selectedAnnotationId = arrow.id;
+        saveBoardState();
+      }
+
+      render();
+      return;
+    }
+
+    if (state.arrowEndpointSession) {
+      state.arrowEndpointSession = null;
+      saveBoardState();
+      renderAnnotationToolbar();
+    }
+  }
+
+  // --- Annotation rendering ---------------------------------------------------
+
+  function createTextBoxElement(annotation) {
+    const el = document.createElement('div');
+    el.className = 'annotation-text';
+    el.dataset.annotationId = annotation.id;
+
+    const content = document.createElement('div');
+    content.className = 'annotation-text__content';
+    content.setAttribute('spellcheck', 'false');
+    el.appendChild(content);
+
+    // Plain listeners: this element is removed from the DOM on delete and on
+    // widget destroy, so its listeners are garbage-collected. The managed
+    // registry would otherwise retain detached nodes for the widget's lifetime.
+    el.addEventListener('pointerdown', (event) => onTextBoxPointerDown(event, annotation.id));
+    el.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      beginEditAnnotation(annotation.id);
+    });
+    content.addEventListener('input', () => {
+      const current = getAnnotationById(annotation.id);
+      if (current) {
+        current.text = content.innerText.replace(/ /g, ' ');
+      }
+    });
+    content.addEventListener('blur', () => {
+      if (state.editingAnnotationId === annotation.id) {
+        commitAnnotationEditing();
+      }
+    });
+
+    return el;
+  }
+
+  function updateTextBoxElement(el, annotation) {
+    el.style.left = `${annotation.x}px`;
+    el.style.top = `${annotation.y}px`;
+    el.style.width = `${annotation.width}px`;
+
+    const content = el.querySelector('.annotation-text__content');
+    content.style.color = annotation.color;
+    content.style.fontSize = `${annotation.fontSize}px`;
+    content.style.textAlign = annotation.align;
+
+    const isEditing = state.editingAnnotationId === annotation.id;
+    const isSelected = state.selectedAnnotationId === annotation.id;
+    content.contentEditable = isEditing ? 'true' : 'false';
+
+    if (!isEditing && content.innerText !== annotation.text) {
+      content.textContent = annotation.text;
+    }
+
+    el.classList.toggle('is-selected', isSelected && !isEditing);
+    el.classList.toggle('is-editing', isEditing);
+    el.classList.toggle('is-empty', !annotation.text && !isEditing);
+  }
+
+  function ensureArrowSvg() {
+    if (arrowSvgEl && arrowSvgEl.isConnected) {
+      return arrowSvgEl;
+    }
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'board-annotation-arrows');
+    svg.style.position = 'absolute';
+    svg.style.top = '0';
+    svg.style.left = '0';
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.overflow = 'visible';
+    svg.style.pointerEvents = 'none';
+    refs.annotationLayer.insertBefore(svg, refs.annotationLayer.firstChild);
+    arrowSvgEl = svg;
+    return svg;
+  }
+
+  function svgEl(name, attrs) {
+    const node = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (const [key, value] of Object.entries(attrs)) {
+      node.setAttribute(key, String(value));
+    }
+    return node;
+  }
+
+  function renderArrowsSvg() {
+    if (!refs.annotationLayer) {
+      return;
+    }
+
+    const svg = ensureArrowSvg();
+    svg.replaceChildren();
+    const zoom = Math.max(getCurrentZoom(), 0.0001);
+    const handleRadius = 7 / zoom;
+
+    for (const annotation of state.annotations) {
+      if (annotation.type !== 'arrow') {
+        continue;
+      }
+
+      const points = resolveArrowPoints(annotation);
+      const pathData = buildSmoothPathData(points);
+      const isSelected = state.selectedAnnotationId === annotation.id;
+
+      const hit = svgEl('path', {
+        d: pathData,
+        fill: 'none',
+        stroke: 'transparent',
+        'stroke-width': Math.max(annotation.weight, 16 / zoom),
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      });
+      hit.style.pointerEvents = 'stroke';
+      hit.style.cursor = 'pointer';
+      hit.addEventListener('pointerdown', (event) => onArrowHitPointerDown(event, annotation.id));
+      svg.appendChild(hit);
+
+      const line = svgEl('path', {
+        d: pathData,
+        fill: 'none',
+        stroke: annotation.color,
+        'stroke-width': annotation.weight,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      });
+      line.style.pointerEvents = 'none';
+      svg.appendChild(line);
+
+      const head = svgEl('path', {
+        d: buildArrowHeadData(points, annotation.weight),
+        fill: annotation.color,
+        stroke: annotation.color,
+        'stroke-width': annotation.weight * 0.4,
+        'stroke-linejoin': 'round',
+      });
+      head.style.pointerEvents = 'none';
+      svg.appendChild(head);
+
+      if (isSelected) {
+        const end = points[points.length - 1];
+        const endpoint = svgEl('circle', {
+          cx: end.x,
+          cy: end.y,
+          r: handleRadius,
+          class: 'annotation-endpoint',
+        });
+        endpoint.style.pointerEvents = 'auto';
+        endpoint.style.cursor = 'grab';
+        endpoint.addEventListener('pointerdown', (event) => onArrowEndpointPointerDown(event, annotation.id));
+        svg.appendChild(endpoint);
+      }
+    }
+
+    // Arrow-start nub on the selected text box.
+    const selected = state.selectedAnnotationId ? getAnnotationById(state.selectedAnnotationId) : null;
+
+    if (selected && selected.type === 'text' && !state.editingAnnotationId) {
+      const nubPos = getArrowNubPosition(selected);
+      const nub = svgEl('circle', {
+        cx: nubPos.x,
+        cy: nubPos.y,
+        r: handleRadius,
+        class: 'annotation-arrow-nub',
+      });
+      nub.style.pointerEvents = 'auto';
+      nub.style.cursor = 'crosshair';
+      nub.addEventListener('pointerdown', (event) => onArrowNubPointerDown(event, selected.id));
+      svg.appendChild(nub);
+    }
+
+    // Live preview while drawing an arrow.
+    if (state.arrowDrawSession) {
+      const session = state.arrowDrawSession;
+      let previewPoints = session.raw.length >= 2
+        ? simplifyPath(session.raw, ARROW_SIMPLIFY_TOLERANCE)
+        : session.raw.slice();
+      const fromAnnotation = getAnnotationById(session.fromTextId);
+
+      if (fromAnnotation && fromAnnotation.type === 'text' && previewPoints.length) {
+        const anchor = rectEdgePoint(getTextBoxRect(fromAnnotation), previewPoints[0]);
+        previewPoints = [anchor, ...previewPoints];
+      }
+
+      if (previewPoints.length >= 2) {
+        const preview = svgEl('path', {
+          d: buildSmoothPathData(previewPoints),
+          fill: 'none',
+          stroke: ANNOTATION_ARROW_DEFAULTS.color,
+          'stroke-width': ANNOTATION_ARROW_DEFAULTS.weight,
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          'stroke-dasharray': `${6 / zoom} ${5 / zoom}`,
+          opacity: '0.75',
+        });
+        preview.style.pointerEvents = 'none';
+        svg.appendChild(preview);
+      }
+    }
+  }
+
+  function renderAnnotations() {
+    if (!refs.annotationLayer) {
+      return;
+    }
+
+    const layer = refs.annotationLayer;
+    layer.classList.toggle('is-tool-active', state.activeTool === 'text');
+    ensureArrowSvg();
+
+    const wanted = new Set();
+
+    for (const annotation of state.annotations) {
+      if (annotation.type !== 'text') {
+        continue;
+      }
+
+      wanted.add(annotation.id);
+      let el = annotationTextEls.get(annotation.id);
+
+      if (!el) {
+        el = createTextBoxElement(annotation);
+        annotationTextEls.set(annotation.id, el);
+        layer.appendChild(el);
+      }
+
+      updateTextBoxElement(el, annotation);
+    }
+
+    for (const [id, el] of annotationTextEls) {
+      if (!wanted.has(id)) {
+        el.remove();
+        annotationTextEls.delete(id);
+      }
+    }
+
+    renderArrowsSvg();
+  }
+
+  function positionAnnotationToolbar(el, annotation) {
+    const stageRect = getStageRect();
+    const zoom = getCurrentZoom();
+    let boardX;
+    let boardY;
+
+    if (annotation.type === 'text') {
+      boardX = annotation.x + annotation.width / 2;
+      boardY = annotation.y;
+    } else {
+      const points = resolveArrowPoints(annotation);
+      const end = points[points.length - 1];
+      boardX = end.x;
+      boardY = end.y;
+    }
+
+    el.style.left = `${stageRect.left + boardX * zoom}px`;
+    el.style.top = `${stageRect.top + boardY * zoom}px`;
+  }
+
+  function renderAnnotationToolbar() {
+    const el = refs.annotationToolbar;
+
+    if (!el) {
+      return;
+    }
+
+    const annotation = state.selectedAnnotationId ? getAnnotationById(state.selectedAnnotationId) : null;
+    const show = Boolean(annotation) && !state.editingAnnotationId && !state.arrowDrawSession && !state.annotationDragSession;
+
+    if (!show) {
+      el.hidden = true;
+      el.dataset.forId = '';
+      el.dataset.forType = '';
+      return;
+    }
+
+    if (el.dataset.forId !== annotation.id || el.dataset.forType !== annotation.type) {
+      el.dataset.forId = annotation.id;
+      el.dataset.forType = annotation.type;
+
+      if (annotation.type === 'text') {
+        el.innerHTML = `
+          <input type="color" class="annotation-toolbar__color" data-atb="color" value="${annotation.color}" aria-label="Text colour" />
+          <button type="button" class="annotation-toolbar__btn" data-atb="font-dec" aria-label="Smaller text">A-</button>
+          <button type="button" class="annotation-toolbar__btn" data-atb="font-inc" aria-label="Larger text">A+</button>
+          <button type="button" class="annotation-toolbar__btn annotation-toolbar__btn--danger" data-atb="delete" aria-label="Delete text">Delete</button>
+        `;
+      } else {
+        el.innerHTML = `
+          <input type="color" class="annotation-toolbar__color" data-atb="color" value="${annotation.color}" aria-label="Arrow colour" />
+          <button type="button" class="annotation-toolbar__btn" data-atb="weight-dec" aria-label="Thinner arrow">-</button>
+          <button type="button" class="annotation-toolbar__btn" data-atb="weight-inc" aria-label="Thicker arrow">+</button>
+          <button type="button" class="annotation-toolbar__btn annotation-toolbar__btn--danger" data-atb="delete" aria-label="Delete arrow">Delete</button>
+        `;
+      }
+    } else {
+      const colorInput = el.querySelector('[data-atb="color"]');
+      if (colorInput && colorInput.value.toLowerCase() !== annotation.color.toLowerCase()) {
+        colorInput.value = annotation.color;
+      }
+    }
+
+    el.hidden = false;
+    positionAnnotationToolbar(el, annotation);
+  }
+
   function render() {
     renderHud();
     renderBoard();
+    renderAnnotations();
+    renderAnnotationToolbar();
   }
 
   function cancelDrag() {
@@ -3559,7 +4752,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     setExportStatus('Exporting PNG...', 'working', { isExporting: true });
 
     try {
-      const bounds = getClusterBounds();
+      const bounds = getExportContentBounds();
 
       if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
         throw new Error('Nothing to export');
@@ -3611,7 +4804,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     setExportStatus('Exporting PDF...', 'working', { isExporting: true });
 
     try {
-      const bounds = getClusterBounds();
+      const bounds = getExportContentBounds();
 
       if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
         throw new Error('Nothing to export');
@@ -3725,6 +4918,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
         page.pushOperators(...clipOps);
         page.drawImage(pdfImage, { x: imgX, y: imgY, width: imgW, height: imgH });
         page.pushOperators(popGraphicsState());
+      }
+
+      const overlayBytes = await buildAnnotationOverlayPngBytes(bounds, 2);
+
+      if (overlayBytes) {
+        const overlayImage = await pdfDoc.embedPng(overlayBytes);
+        page.drawImage(overlayImage, { x: 0, y: 0, width: pageWidth, height: pageHeight });
       }
 
       const pdfBytes = await pdfDoc.save();
@@ -4474,6 +5674,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     state.items = [];
+    state.annotations = [];
+    state.activeTool = null;
+    state.selectedAnnotationId = null;
+    state.editingAnnotationId = null;
+    state.annotationDragSession = null;
+    state.arrowDrawSession = null;
+    state.arrowEndpointSession = null;
     state.layout = { ...DEFAULT_LAYOUT };
     state.exportBackgroundHex = DEFAULT_LAYOUT.exportBackgroundHex;
     state.exportBackgroundHexDraft = DEFAULT_LAYOUT.exportBackgroundHex;
@@ -4700,6 +5907,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         <div class="board-shell">
           <div class="board-canvas" data-role="board">
             <div class="board-stage" data-role="stage"></div>
+            <div class="board-annotation-layer" data-role="annotation-layer"></div>
             <div class="board-overlay-layer" data-role="overlay-layer"></div>
           </div>
         </div>
@@ -4720,10 +5928,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
             <button
               type="button"
               class="board-hud__button"
+              data-role="text-tool"
+              aria-pressed="false"
+            >Text</button>
+            <button
+              type="button"
+              class="board-hud__button"
               data-role="multi-select-toggle"
               aria-pressed="false"
               hidden
             >Multi-select</button>
+            <button type="button" class="board-hud__button" data-role="save-board">Save</button>
+            <button type="button" class="board-hud__button" data-role="open-board">Open</button>
+            <input type="file" data-role="open-input" accept="application/json,.json" hidden />
             <button
               type="button"
               class="board-hud__button"
@@ -4891,6 +6108,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
           </div>
         </div>
         <div class="board-selection-toolbar" data-role="selection-toolbar" hidden></div>
+        <div class="annotation-toolbar" data-role="annotation-toolbar" hidden></div>
         <div class="board-toast" data-role="toast" hidden></div>
         <div class="board-mobile-gate" data-role="mobile-gate" hidden>
           <div class="board-mobile-gate__content">
@@ -4914,6 +6132,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.importImages = getRoleRef('import-images');
     refs.importInput = getRoleRef('import-input');
     refs.multiSelectToggle = getRoleRef('multi-select-toggle');
+    refs.textTool = getRoleRef('text-tool');
+    refs.saveBoard = getRoleRef('save-board');
+    refs.openBoard = getRoleRef('open-board');
+    refs.openInput = getRoleRef('open-input');
     refs.exportPng = getRoleRef('export-png');
     refs.utilityToggle = getRoleRef('utility-toggle');
     refs.utilityPanel = getRoleRef('utility-panel');
@@ -4956,6 +6178,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.shell = refs.root.querySelector('.board-shell');
     refs.board = refs.root.querySelector('[data-role="board"]');
     refs.stage = refs.root.querySelector('[data-role="stage"]');
+    refs.annotationLayer = refs.root.querySelector('[data-role="annotation-layer"]');
     refs.cropAnchorLayer = refs.root.querySelector('[data-role="overlay-layer"]');
     refs.hud = refs.root.querySelector('[data-role="hud"]');
     refs.hudContext = getRoleRef('hud-context');
@@ -4964,6 +6187,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.mobileZoomSlider = getRoleRef('mobile-zoom-slider');
     refs.mobileZoomValue = getRoleRef('mobile-zoom-value');
     refs.selectionToolbar = getRoleRef('selection-toolbar');
+    refs.annotationToolbar = getRoleRef('annotation-toolbar');
     refs.toast = getRoleRef('toast');
     refs.mobileGate = getRoleRef('mobile-gate');
 
@@ -4989,15 +6213,34 @@ function createMoodboardGrid(container, initialOptions = {}) {
     addManagedEventListener(refs.multiSelectToggle, 'click', toggleMultiSelectMode);
     addManagedEventListener(refs.importInput, 'change', async (event) => {
       setActiveWidget();
-      const files = Array.from(event.currentTarget.files || []).filter((file) => file.type.startsWith('image/'));
+      const input = event.currentTarget;
+      const files = Array.from(input.files || []).filter((file) => file.type.startsWith('image/'));
 
       if (!files.length) {
-        event.currentTarget.value = '';
+        input.value = '';
         return;
       }
 
       await insertFiles(files, getImportTargetPoint(), null);
-      event.currentTarget.value = '';
+      input.value = '';
+    });
+    addManagedEventListener(refs.textTool, 'click', () => {
+      setActiveWidget();
+      toggleTextTool();
+    });
+    addManagedEventListener(refs.saveBoard, 'click', () => {
+      setActiveWidget();
+      saveBoardToFile();
+    });
+    addManagedEventListener(refs.openBoard, 'click', () => {
+      setActiveWidget();
+      openBoardPicker();
+    });
+    addManagedEventListener(refs.openInput, 'change', async (event) => {
+      const input = event.currentTarget;
+      const file = input.files?.[0] ?? null;
+      await loadBoardFromFile(file);
+      input.value = '';
     });
     addManagedEventListener(refs.exportPng, 'click', toggleExportPanel);
     addManagedEventListener(refs.utilityToggle, 'click', toggleUtilityPanel);
@@ -5080,6 +6323,101 @@ function createMoodboardGrid(container, initialOptions = {}) {
       if (!button) return;
       state.exportPdfRoundedCorners = button.dataset.exportCorners === 'rounded';
       renderExportPanel();
+    });
+    addManagedEventListener(refs.annotationLayer, 'pointerdown', (event) => {
+      if (state.activeTool === 'text' && event.target === refs.annotationLayer) {
+        event.stopPropagation();
+        setActiveWidget();
+        const point = boardPointFromEvent(event);
+        createTextAnnotation(point.x, point.y);
+      }
+    });
+    addManagedEventListener(document, 'pointermove', onAnnotationPointerMove);
+    addManagedEventListener(document, 'pointerup', onAnnotationPointerUp);
+    addManagedEventListener(
+      document,
+      'pointerdown',
+      (event) => {
+        if (!isWidgetActive()) {
+          return;
+        }
+
+        const target = event.target;
+        const insideAnnotation =
+          target instanceof Element &&
+          (target.closest('.annotation-text') ||
+            target.closest('[data-role="annotation-toolbar"]') ||
+            target.closest('.board-annotation-arrows'));
+
+        if (insideAnnotation) {
+          return;
+        }
+
+        if (state.editingAnnotationId) {
+          commitAnnotationEditing();
+        } else if (state.selectedAnnotationId) {
+          selectAnnotation(null);
+        }
+      },
+      true,
+    );
+    addManagedEventListener(refs.annotationToolbar, 'input', (event) => {
+      const control = event.target.closest('[data-atb]');
+      if (!control) return;
+      const annotation = state.selectedAnnotationId ? getAnnotationById(state.selectedAnnotationId) : null;
+      if (!annotation) return;
+      if (control.dataset.atb === 'color') {
+        // Live preview only. Persisting on every picker tick would re-serialize
+        // all image data URLs; commit once on 'change'.
+        updateAnnotation(annotation.id, { color: control.value }, { save: false });
+        renderAnnotations();
+      }
+    });
+    addManagedEventListener(refs.annotationToolbar, 'change', (event) => {
+      const control = event.target.closest('[data-atb="color"]');
+      if (control) {
+        saveBoardState();
+      }
+    });
+    addManagedEventListener(refs.annotationToolbar, 'click', (event) => {
+      const control = event.target.closest('[data-atb]');
+      if (!control) return;
+      const annotation = state.selectedAnnotationId ? getAnnotationById(state.selectedAnnotationId) : null;
+      if (!annotation) return;
+      const action = control.dataset.atb;
+
+      if (action === 'delete') {
+        deleteAnnotation(annotation.id);
+        return;
+      }
+
+      if (action === 'font-dec') {
+        updateAnnotation(annotation.id, { fontSize: clamp(annotation.fontSize - 2, ANNOTATION_FONT_MIN, ANNOTATION_FONT_MAX) });
+      } else if (action === 'font-inc') {
+        updateAnnotation(annotation.id, { fontSize: clamp(annotation.fontSize + 2, ANNOTATION_FONT_MIN, ANNOTATION_FONT_MAX) });
+      } else if (action === 'weight-dec') {
+        updateAnnotation(annotation.id, { weight: clamp(annotation.weight - 1, ANNOTATION_ARROW_MIN_WEIGHT, ANNOTATION_ARROW_MAX_WEIGHT) });
+      } else if (action === 'weight-inc') {
+        updateAnnotation(annotation.id, { weight: clamp(annotation.weight + 1, ANNOTATION_ARROW_MIN_WEIGHT, ANNOTATION_ARROW_MAX_WEIGHT) });
+      }
+
+      renderAnnotations();
+      renderAnnotationToolbar();
+    });
+    addManagedEventListener(
+      window,
+      'scroll',
+      () => {
+        if (state.selectedAnnotationId) {
+          renderAnnotationToolbar();
+        }
+      },
+      true,
+    );
+    addManagedEventListener(window, 'resize', () => {
+      if (state.selectedAnnotationId) {
+        renderAnnotationToolbar();
+      }
     });
     updateMobileMode();
     state.zoom = getDefaultZoom();
@@ -5286,10 +6624,32 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     addManagedEventListener(window, 'keydown', (event) => {
       if (!isWidgetActive()) return;
-      if (event.key === 'Escape' && hasOpenFloatingPanel()) {
-        closeFloatingPanels();
+      if (event.key === 'Escape') {
+        if (state.editingAnnotationId) {
+          event.preventDefault();
+          commitAnnotationEditing();
+          return;
+        }
+        if (state.activeTool) {
+          event.preventDefault();
+          setActiveTool(null);
+          return;
+        }
+        if (state.selectedAnnotationId) {
+          event.preventDefault();
+          selectAnnotation(null);
+          return;
+        }
+        if (hasOpenFloatingPanel()) {
+          closeFloatingPanels();
+        }
       }
       if ((event.key === 'Delete' || event.key === 'Backspace') && !isInteractiveTarget(event.target)) {
+        if (state.selectedAnnotationId) {
+          event.preventDefault();
+          deleteAnnotation(state.selectedAnnotationId);
+          return;
+        }
         const selectionIds = getSelectionIds();
         if (selectionIds.length > 0) {
           event.preventDefault();
