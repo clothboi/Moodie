@@ -4030,11 +4030,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
+    // Deleting a text box also removes any arrows anchored to it — a dangling
+    // arrow with no text to point from reads as a mistake.
+    const removeIds = new Set([id]);
+
     if (target.type === 'text') {
       for (const annotation of state.annotations) {
         if (annotation.type === 'arrow' && annotation.fromTextId === id) {
-          annotation.points = resolveArrowPoints(annotation);
-          annotation.fromTextId = null;
+          removeIds.add(annotation.id);
         }
       }
     }
@@ -4043,9 +4046,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
       state.editingAnnotationId = null;
     }
 
-    state.annotations = state.annotations.filter((annotation) => annotation.id !== id);
+    state.annotations = state.annotations.filter((annotation) => !removeIds.has(annotation.id));
 
-    if (state.selectedAnnotationId === id) {
+    if (state.selectedAnnotationId && removeIds.has(state.selectedAnnotationId)) {
       state.selectedAnnotationId = null;
     }
 
@@ -4449,12 +4452,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
         : session.raw.map((point) => ({ x: point.x, y: point.y }));
 
       if (simplified.length >= 2 && polylineLength(simplified) >= 14) {
+        // An arrow pulled from a text box inherits that box's colour so the two
+        // read as one unit; weight still comes from the remembered default.
+        const fromText = session.fromTextId ? getAnnotationById(session.fromTextId) : null;
+        const arrowColor = fromText && fromText.type === 'text' ? fromText.color : annotationPrefs.arrow.color;
         const arrow = {
           id: createItemId(),
           type: 'arrow',
           fromTextId: session.fromTextId,
           points: simplified,
-          color: annotationPrefs.arrow.color,
+          color: arrowColor,
           weight: annotationPrefs.arrow.weight,
         };
         state.annotations.push(arrow);
@@ -4689,10 +4696,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
       }
 
       if (previewPoints.length >= 2) {
+        // Preview in the source text box's colour — the committed arrow will
+        // inherit it, so the preview should match.
+        const previewColor =
+          fromAnnotation && fromAnnotation.type === 'text' ? fromAnnotation.color : annotationPrefs.arrow.color;
         const preview = svgEl('path', {
           d: buildArrowGeometry(previewPoints).path,
           fill: 'none',
-          stroke: annotationPrefs.arrow.color,
+          stroke: previewColor,
           'stroke-width': annotationPrefs.arrow.weight,
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
