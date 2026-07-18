@@ -12,6 +12,9 @@ import {
 } from './exportUtils.js';
 
 const DEFAULT_STORAGE_KEY = 'moodboard-grid.board';
+// Global (not per-board) so the last text/arrow settings a user chose carry
+// across every board.
+const ANNOTATION_PREFS_STORAGE_KEY = 'moodboard-grid.annotationPrefs';
 const DEFAULT_TITLE = 'Moodboard Grid';
 const AUTO_INIT_SELECTOR = '[data-moodboard-grid]';
 const widgetInstances = new WeakMap();
@@ -582,7 +585,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
 
     try {
-      const raw = window.localStorage.getItem(`${STORAGE_KEY}.annotationPrefs`);
+      const raw = window.localStorage.getItem(ANNOTATION_PREFS_STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
 
       if (parsed && typeof parsed === 'object') {
@@ -615,7 +618,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   function persistAnnotationPrefs() {
     try {
-      window.localStorage.setItem(`${STORAGE_KEY}.annotationPrefs`, JSON.stringify(annotationPrefs));
+      window.localStorage.setItem(ANNOTATION_PREFS_STORAGE_KEY, JSON.stringify(annotationPrefs));
     } catch {
       // Ignore storage failures.
     }
