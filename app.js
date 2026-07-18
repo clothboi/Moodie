@@ -6618,9 +6618,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const annotation = state.selectedAnnotationId ? getAnnotationById(state.selectedAnnotationId) : null;
       if (!annotation) return;
       if (control.dataset.atb === 'color') {
-        // Live preview only. Persisting on every picker tick would re-serialize
-        // all image data URLs; commit once on 'change'.
+        // Live board preview only — persisting the whole board on every picker
+        // tick would re-serialize all image data URLs, so that waits for 'change'.
         updateAnnotation(annotation.id, { color: control.value }, { save: false });
+        // But DO remember the colour live: <input type="color"> fires 'input'
+        // reliably, whereas its 'change' event is flaky across browsers, and
+        // persisting the tiny prefs object here is cheap.
+        rememberAnnotationDefaults(annotation);
         renderAnnotations();
       }
     });
