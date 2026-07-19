@@ -2156,6 +2156,11 @@
   stroke-width: 1.5;
 }
 
+.moodboard-grid .annotation-arrow-halo {
+  stroke: var(--accent, #6e91b9);
+  opacity: 0.4;
+}
+
 .moodboard-grid .annotation-endpoint {
   fill: #ffffff;
   stroke: var(--accent, #6e91b9);

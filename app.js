@@ -290,6 +290,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     mobilePanY: 0,
     isMultiSelectMode: false,
     selectedItemIds: [],
+    selectedAnnotationIds: [],
     selectionAnchorId: null,
     isImporting: false,
     viewportTransform: null,
@@ -897,6 +898,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return getSelectionIds().includes(itemId);
   }
 
+  // An annotation counts as selected when it's the single-selected one (toolbar
+  // / handles) OR part of a marquee group selection (highlight only).
+  function isAnnotationSelected(id) {
+    return state.selectedAnnotationId === id || state.selectedAnnotationIds.includes(id);
+  }
+
   function getSelectionAnchorId() {
     const selectionIds = getSelectionIds();
 
@@ -929,6 +936,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   function clearSelection() {
     setSelection([]);
+    state.selectedAnnotationIds = [];
     state.singleSelectionUiEnabled = false;
   }
 
@@ -1106,11 +1114,30 @@ function createMoodboardGrid(container, initialOptions = {}) {
         ? [targetItemId]
         : [];
 
-    if (!deleteIds.length) {
+    // Marquee group selection can also include annotations.
+    const annotationIds = new Set(state.selectedAnnotationIds);
+
+    if (!deleteIds.length && !annotationIds.size) {
       return;
     }
 
-    state.items = deleteIds.length > 1 ? deleteItems(deleteIds, state.items) : deleteItem(deleteIds[0], state.items);
+    if (deleteIds.length) {
+      state.items = deleteIds.length > 1 ? deleteItems(deleteIds, state.items) : deleteItem(deleteIds[0], state.items);
+    }
+
+    if (annotationIds.size) {
+      // Deleting a text box also takes its glued arrows (matches deleteAnnotation).
+      for (const annotation of state.annotations) {
+        if (annotation.type === 'arrow' && annotation.fromTextId && annotationIds.has(annotation.fromTextId)) {
+          annotationIds.add(annotation.id);
+        }
+      }
+      state.annotations = state.annotations.filter((annotation) => !annotationIds.has(annotation.id));
+      if (state.selectedAnnotationId && annotationIds.has(state.selectedAnnotationId)) {
+        state.selectedAnnotationId = null;
+      }
+    }
+
     clearSelection();
     saveBoardState();
     render();
@@ -2431,6 +2458,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       state.exportBackgroundHexDraft = state.layout.exportBackgroundHex;
       // Clear transient sessions/selection that may reference removed content.
       state.selectedItemIds = [];
+      state.selectedAnnotationIds = [];
       state.selectionAnchorId = null;
       state.selectedAnnotationId = null;
       state.editingAnnotationId = null;
@@ -4187,6 +4215,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     state.selectedAnnotationId = id;
+    // A single selection replaces any marquee group selection.
+    state.selectedAnnotationIds = [];
 
     if (id) {
       state.selectedItemIds = [];
@@ -4888,7 +4918,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     content.style.fontFamily = getFontStack(annotation.font);
 
     const isEditing = state.editingAnnotationId === annotation.id;
-    const isSelected = state.selectedAnnotationId === annotation.id;
+    const isSelected = isAnnotationSelected(annotation.id);
     content.contentEditable = isEditing ? 'true' : 'false';
 
     if (!isEditing && content.innerText !== annotation.text) {
@@ -4953,7 +4983,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const points = resolveArrowPoints(annotation);
       const geo = buildArrowGeometry(points);
       const pathData = geo.path;
-      const isSelected = state.selectedAnnotationId === annotation.id;
+      const isSingleSelected = state.selectedAnnotationId === annotation.id;
+      const isSelected = isAnnotationSelected(annotation.id);
 
       const hit = svgEl('path', {
         d: pathData,
@@ -4967,6 +4998,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
       hit.style.cursor = 'pointer';
       hit.addEventListener('pointerdown', (event) => onArrowHitPointerDown(event, annotation.id));
       svg.appendChild(hit);
+
+      if (isSelected) {
+        // Selection halo behind the line (marquee group or single selection).
+        const halo = svgEl('path', {
+          d: pathData,
+          fill: 'none',
+          'stroke-width': annotation.weight + 8 / zoom,
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          class: 'annotation-arrow-halo',
+        });
+        halo.style.pointerEvents = 'none';
+        svg.appendChild(halo);
+      }
 
       const line = svgEl('path', {
         d: pathData,
@@ -4989,10 +5034,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
       head.style.pointerEvents = 'none';
       svg.appendChild(head);
 
-      if (isSelected) {
-        // A handle for every editable node: the end, plus the 1–2 mid points so
-        // the curve can be reshaped. The start is skipped when the arrow is glued
-        // to a text box, since that end tracks the box automatically.
+      if (isSingleSelected) {
+        // A handle for every editable node: the end, plus the mid points so the
+        // curve can be reshaped. The start is skipped when the arrow is glued to
+        // a text box, since that end tracks the box automatically. Handles are
+        // only for single selection, not a marquee group.
         const startEditable = !annotation.fromTextId;
         const lastIndex = points.length - 1;
 
@@ -5685,6 +5731,54 @@ function createMoodboardGrid(container, initialOptions = {}) {
       .map((item) => item.id);
   }
 
+  function getMarqueeAnnotationIds(startPoint, endPoint) {
+    const selectionRect = getNormalizedRect(startPoint, endPoint);
+    const ids = [];
+
+    for (const annotation of state.annotations) {
+      let box;
+
+      if (annotation.type === 'text') {
+        const rect = getTextBoxRect(annotation);
+        box = { left: rect.left, top: rect.top, right: rect.left + rect.width, bottom: rect.top + rect.height };
+      } else if (annotation.type === 'arrow') {
+        const points = resolveArrowPoints(annotation);
+        let left = Infinity;
+        let top = Infinity;
+        let right = -Infinity;
+        let bottom = -Infinity;
+        for (const point of points) {
+          left = Math.min(left, point.x);
+          top = Math.min(top, point.y);
+          right = Math.max(right, point.x);
+          bottom = Math.max(bottom, point.y);
+        }
+        box = { left, top, right, bottom };
+      } else {
+        continue;
+      }
+
+      if (rectsOverlap(selectionRect, box)) {
+        ids.push(annotation.id);
+      }
+    }
+
+    return ids;
+  }
+
+  // During a marquee, select overlapping images AND annotations together. The
+  // annotation part is a group selection (highlight + delete, no single toolbar).
+  function applyMarqueeSelection(startPoint, endPoint) {
+    setSelection(getMarqueeSelectionIds(startPoint, endPoint));
+
+    const annotationIds = getMarqueeAnnotationIds(startPoint, endPoint);
+    if (annotationIds.length && state.editingAnnotationId) {
+      commitAnnotationEditing({ render: false });
+    }
+    state.selectedAnnotationIds = annotationIds;
+    state.selectedAnnotationId = null;
+  }
+
   function startMarqueeSelection(event) {
     if (
       event.button !== 0 ||
@@ -5714,8 +5808,9 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
       const nextBoardRect = getStageRect();
       state.marqueeSession.currentPoint = getPointWithinBoard(nextBoardRect, moveEvent.clientX, moveEvent.clientY);
-      setSelection(getMarqueeSelectionIds(state.marqueeSession.startPoint, state.marqueeSession.currentPoint));
+      applyMarqueeSelection(state.marqueeSession.startPoint, state.marqueeSession.currentPoint);
       renderBoard();
+      renderAnnotations();
     };
 
     const removeListeners = () => {
@@ -5731,11 +5826,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
         return;
       }
 
-      setSelection(getMarqueeSelectionIds(state.marqueeSession.startPoint, state.marqueeSession.currentPoint));
+      applyMarqueeSelection(state.marqueeSession.startPoint, state.marqueeSession.currentPoint);
       state.marqueeSession = null;
       state.suppressNextClick = true;
       setWidgetInteractionState('is-marqueeing', false);
       renderBoard();
+      renderAnnotations();
     };
 
     const onPointerUp = () => {
@@ -7055,7 +7151,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
           commitAnnotationEditing({ render: false });
         }
 
-        if (state.selectedAnnotationId) {
+        if (state.selectedAnnotationId || state.selectedAnnotationIds.length) {
           selectAnnotation(null);
         }
       },
@@ -7400,13 +7496,16 @@ function createMoodboardGrid(container, initialOptions = {}) {
         !isInteractiveTarget(event.target) &&
         !(event.target instanceof Element && event.target.closest('[contenteditable="true"]'))
       ) {
-        if (state.selectedAnnotationId) {
+        const hasGroup = getSelectionIds().length > 0 || state.selectedAnnotationIds.length > 0;
+
+        // A lone single-selected annotation deletes on its own; anything with a
+        // marquee group (items and/or annotations) goes through deleteSelection.
+        if (state.selectedAnnotationId && !hasGroup) {
           event.preventDefault();
           deleteAnnotation(state.selectedAnnotationId);
           return;
         }
-        const selectionIds = getSelectionIds();
-        if (selectionIds.length > 0) {
+        if (hasGroup) {
           event.preventDefault();
           deleteSelection();
         }
