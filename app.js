@@ -4378,11 +4378,21 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
-  // Arrows pull from — and stay anchored to — the centre of the text box's
-  // bottom edge.
-  function getTextAnchorPoint(annotation) {
-    const rect = getTextBoxRect(annotation);
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height };
+  function rectEdgePoint(rect, toward) {
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const dx = toward.x - cx;
+    const dy = toward.y - cy;
+
+    if (dx === 0 && dy === 0) {
+      return { x: rect.left + rect.width, y: cy };
+    }
+
+    const halfW = rect.width / 2;
+    const halfH = rect.height / 2;
+    const scale = 1 / Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH);
+
+    return { x: cx + dx * scale, y: cy + dy * scale };
   }
 
   function resolveArrowPoints(arrow) {
@@ -4392,7 +4402,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const annotation = getAnnotationById(arrow.fromTextId);
 
       if (annotation && annotation.type === 'text') {
-        points[0] = getTextAnchorPoint(annotation);
+        const toward = points[1] ?? points[points.length - 1];
+        points[0] = rectEdgePoint(getTextBoxRect(annotation), toward);
       }
     }
 
@@ -4579,14 +4590,32 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const angle = Math.atan2(dy, dx);
     const size = weight * 3 + 7;
     const spread = 0.5;
-    const left = { x: end.x + Math.cos(angle + Math.PI - spread) * size, y: end.y + Math.sin(angle + Math.PI - spread) * size };
-    const right = { x: end.x + Math.cos(angle + Math.PI + spread) * size, y: end.y + Math.sin(angle + Math.PI + spread) * size };
 
-    return `M ${end.x} ${end.y} L ${left.x} ${left.y} L ${right.x} ${right.y} Z`;
+    // Shift the whole triangle forward along the arrow so its centroid — rather
+    // than its tip — sits on the line's end point.
+    const shift = (2 * Math.cos(spread) * size) / 3;
+    const sx = Math.cos(angle) * shift;
+    const sy = Math.sin(angle) * shift;
+
+    const tip = { x: end.x + sx, y: end.y + sy };
+    const left = {
+      x: end.x + sx + Math.cos(angle + Math.PI - spread) * size,
+      y: end.y + sy + Math.sin(angle + Math.PI - spread) * size,
+    };
+    const right = {
+      x: end.x + sx + Math.cos(angle + Math.PI + spread) * size,
+      y: end.y + sy + Math.sin(angle + Math.PI + spread) * size,
+    };
+
+    return `M ${tip.x} ${tip.y} L ${left.x} ${left.y} L ${right.x} ${right.y} Z`;
   }
 
+  // The drag handle sits at the centre of the text box's bottom edge — a
+  // consistent grab point. (The committed arrow still anchors to whichever box
+  // edge faces its target, via resolveArrowPoints.)
   function getArrowNubPosition(annotation) {
-    return getTextAnchorPoint(annotation);
+    const rect = getTextBoxRect(annotation);
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height };
   }
 
   // --- Annotation pointer sessions -------------------------------------------
@@ -4955,11 +4984,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const fromAnnotation = getAnnotationById(session.fromTextId);
 
       if (fromAnnotation && fromAnnotation.type === 'text' && previewPoints.length) {
-        // Anchor the start to the box's centre-bottom by REPLACING the first
-        // point (not prepending) so the preview keeps the same point count — and
-        // therefore the same rounded shape — as the committed arrow.
+        // Anchor the start to the box edge by REPLACING the first point (not
+        // prepending) so the preview keeps the same point count — and therefore
+        // the same rounded shape — as the committed arrow.
+        const toward = previewPoints[1] ?? previewPoints[previewPoints.length - 1];
         previewPoints = previewPoints.map((point) => ({ x: point.x, y: point.y }));
-        previewPoints[0] = getTextAnchorPoint(fromAnnotation);
+        previewPoints[0] = rectEdgePoint(getTextBoxRect(fromAnnotation), toward);
       }
 
       if (previewPoints.length >= 2) {
