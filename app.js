@@ -4556,20 +4556,19 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return { path: `M ${s.x} ${s.y} Q ${c.x} ${c.y} ${e.x} ${e.y}`, tangentFrom: c, end: e };
     }
 
-    // n >= 4: Catmull-Rom spline through ALL points, so every mid-point handle
-    // stays on the curve and can be dragged intuitively.
-    let path = `M ${points[0].x} ${points[0].y}`;
+    // n >= 4: interior points act as quadratic controls, joined at the
+    // midpoints between them so transitions stay C1-smooth and hand tremor is
+    // smoothed out rather than traced through (which read as wobble).
+    const s = points[0];
+    let path = `M ${s.x} ${s.y}`;
 
-    for (let i = 0; i < n - 1; i += 1) {
-      const p0 = points[i - 1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] || p2;
-      const c1x = p1.x + (p2.x - p0.x) / 6;
-      const c1y = p1.y + (p2.y - p0.y) / 6;
-      const c2x = p2.x - (p3.x - p1.x) / 6;
-      const c2y = p2.y - (p3.y - p1.y) / 6;
-      path += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`;
+    for (let i = 1; i < n - 1; i += 1) {
+      const ctrl = points[i];
+      const anchor =
+        i === n - 2
+          ? end
+          : { x: (points[i].x + points[i + 1].x) / 2, y: (points[i].y + points[i + 1].y) / 2 };
+      path += ` Q ${ctrl.x} ${ctrl.y} ${anchor.x} ${anchor.y}`;
     }
 
     return { path, tangentFrom: points[n - 2], end };
@@ -4668,8 +4667,58 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     event.stopPropagation();
     event.preventDefault();
+
+    const annotation = getAnnotationById(arrowId);
+
+    // Ctrl/Cmd-click removes a mid point (the start and end can't be removed).
+    if (
+      annotation &&
+      annotation.type === 'arrow' &&
+      (event.ctrlKey || event.metaKey) &&
+      pointIndex > 0 &&
+      pointIndex < annotation.points.length - 1
+    ) {
+      annotation.points.splice(pointIndex, 1);
+      selectAnnotation(arrowId, { render: false });
+      saveBoardState();
+      render();
+      return;
+    }
+
     selectAnnotation(arrowId);
     state.arrowEndpointSession = { id: arrowId, pointIndex };
+  }
+
+  // Insert a new mid point where the user Shift-clicked, into the segment of the
+  // arrow nearest the click so the curve bends there.
+  function addArrowMidPoint(arrowId, point) {
+    const annotation = getAnnotationById(arrowId);
+
+    if (!annotation || annotation.type !== 'arrow') {
+      return;
+    }
+
+    if (annotation.points.length - 2 >= ARROW_MAX_MIDS) {
+      selectAnnotation(arrowId);
+      return; // already at the mid-point cap
+    }
+
+    const resolved = resolveArrowPoints(annotation);
+    let bestSeg = 0;
+    let bestDist = Infinity;
+
+    for (let i = 0; i < resolved.length - 1; i += 1) {
+      const d = squareSegmentDistance(point, resolved[i], resolved[i + 1]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestSeg = i;
+      }
+    }
+
+    annotation.points.splice(bestSeg + 1, 0, { x: point.x, y: point.y });
+    selectAnnotation(arrowId, { render: false });
+    saveBoardState();
+    render();
   }
 
   function onArrowHitPointerDown(event, arrowId) {
@@ -4678,6 +4727,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
     }
 
     event.stopPropagation();
+
+    // Shift-click adds a mid point at the click position.
+    if (event.shiftKey) {
+      event.preventDefault();
+      addArrowMidPoint(arrowId, boardPointFromEvent(event));
+      return;
+    }
+
     selectAnnotation(arrowId);
   }
 
