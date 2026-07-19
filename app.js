@@ -218,6 +218,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   const ANNOTATION_ARROW_MIN_WEIGHT = 1;
   const ANNOTATION_ARROW_MAX_WEIGHT = 14;
   const ARROW_SIMPLIFY_TOLERANCE = 4;
+  const ARROW_MAX_MIDS = 3;
   const LAYOUT_MIN_PX = 0;
   const LAYOUT_MAX_PX = 24;
   const LAYOUT_STEP_PX = 2;
@@ -2717,6 +2718,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const padY = 4;
     const fontFamily = getFontStack(annotation.font);
 
+    // Box fill matching the on-screen text box (board background colour).
+    const boxHeight = getTextBoxHeight(annotation);
+    context.save();
+    context.fillStyle = state.exportBackgroundHex;
+    buildRoundedRectPath(context, annotation.x, annotation.y, annotation.width, boxHeight, 4);
+    context.fill();
+    context.restore();
+
     context.save();
     context.font = `${annotation.fontSize}px ${fontFamily}`;
     context.textBaseline = 'top';
@@ -4478,10 +4487,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
     return points.filter((_, i) => keep[i]).map((point) => ({ x: point.x, y: point.y }));
   }
 
-  // Reduce a freehand stroke to start + end + at most two apex points. Feeding
-  // so few points into the Catmull-Rom smoother yields a clean, gentle arc
-  // instead of a jittery polyline that traces every hand tremor.
-  function reduceArrowPoints(points) {
+  // Reduce a freehand stroke to start + end + up to ARROW_MAX_MIDS interior
+  // points, keeping the most significant bends (a Douglas-Peucker pass with a
+  // fixed point budget). Feeding so few points into the smoother yields clean,
+  // editable curves instead of a jittery polyline that traces hand tremor.
+  function reduceArrowPoints(points, maxMids = ARROW_MAX_MIDS) {
     if (points.length <= 2) {
       return points.map((point) => ({ x: point.x, y: point.y }));
     }
@@ -4489,53 +4499,39 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const start = points[0];
     const end = points[points.length - 1];
     const chord = Math.hypot(end.x - start.x, end.y - start.y) || 1;
-    // Unit normal to the start→end chord; signed distance tells us which side
-    // of the chord (and how far) each sampled point bows out.
-    const nx = -(end.y - start.y) / chord;
-    const ny = (end.x - start.x) / chord;
+    // Below this deviation from a straight segment we don't bother adding a
+    // point — keeps gentle/straight drags clean.
+    const minDev = Math.max(6, chord * 0.03);
+    const minDevSquare = minDev * minDev;
 
-    let maxPos = 0;
-    let maxNeg = 0;
-    let posIdx = -1;
-    let negIdx = -1;
+    const keptIndices = [0, points.length - 1];
 
-    for (let i = 1; i < points.length - 1; i += 1) {
-      const signed = (points[i].x - start.x) * nx + (points[i].y - start.y) * ny;
-      if (signed > maxPos) {
-        maxPos = signed;
-        posIdx = i;
+    while (keptIndices.length - 2 < maxMids) {
+      let bestSquare = 0;
+      let bestIndex = -1;
+
+      // Find the point (across all current segments) furthest from its segment.
+      for (let s = 0; s < keptIndices.length - 1; s += 1) {
+        const a = keptIndices[s];
+        const b = keptIndices[s + 1];
+        for (let i = a + 1; i < b; i += 1) {
+          const square = squareSegmentDistance(points[i], points[a], points[b]);
+          if (square > bestSquare) {
+            bestSquare = square;
+            bestIndex = i;
+          }
+        }
       }
-      if (signed < maxNeg) {
-        maxNeg = signed;
-        negIdx = i;
+
+      if (bestIndex === -1 || bestSquare < minDevSquare) {
+        break;
       }
+
+      keptIndices.push(bestIndex);
+      keptIndices.sort((p, q) => p - q);
     }
 
-    const span = maxPos - maxNeg;
-    const startPoint = { x: start.x, y: start.y };
-    const endPoint = { x: end.x, y: end.y };
-
-    // Effectively straight — one clean segment reads better than a forced bend.
-    if (span < chord * 0.06 || span < 6) {
-      return [startPoint, endPoint];
-    }
-
-    const mids = [];
-    const bowsBothWays = maxPos > chord * 0.05 && -maxNeg > chord * 0.05 && posIdx !== -1 && negIdx !== -1;
-
-    if (bowsBothWays) {
-      // S-curve: keep both apexes, ordered as they were drawn.
-      const [a, b] = posIdx < negIdx ? [posIdx, negIdx] : [negIdx, posIdx];
-      mids.push({ x: points[a].x, y: points[a].y }, { x: points[b].x, y: points[b].y });
-    } else {
-      // Simple arc: keep the single furthest apex.
-      const apex = -maxNeg > maxPos ? negIdx : posIdx;
-      if (apex !== -1) {
-        mids.push({ x: points[apex].x, y: points[apex].y });
-      }
-    }
-
-    return [startPoint, ...mids, endPoint];
+    return keptIndices.map((i) => ({ x: points[i].x, y: points[i].y }));
   }
 
   // Turn the reduced arrow points into a rounded path plus the tangent that
@@ -4560,18 +4556,20 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return { path: `M ${s.x} ${s.y} Q ${c.x} ${c.y} ${e.x} ${e.y}`, tangentFrom: c, end: e };
     }
 
-    // n >= 4: interior points act as quadratic controls, joined at the
-    // midpoints between them so the transitions stay C1-smooth.
-    const s = points[0];
-    let path = `M ${s.x} ${s.y}`;
+    // n >= 4: Catmull-Rom spline through ALL points, so every mid-point handle
+    // stays on the curve and can be dragged intuitively.
+    let path = `M ${points[0].x} ${points[0].y}`;
 
-    for (let i = 1; i < n - 1; i += 1) {
-      const ctrl = points[i];
-      const anchor =
-        i === n - 2
-          ? end
-          : { x: (points[i].x + points[i + 1].x) / 2, y: (points[i].y + points[i + 1].y) / 2 };
-      path += ` Q ${ctrl.x} ${ctrl.y} ${anchor.x} ${anchor.y}`;
+    for (let i = 0; i < n - 1; i += 1) {
+      const p0 = points[i - 1] || points[i];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[i + 2] || p2;
+      const c1x = p1.x + (p2.x - p0.x) / 6;
+      const c1y = p1.y + (p2.y - p0.y) / 6;
+      const c2x = p2.x - (p3.x - p1.x) / 6;
+      const c2y = p2.y - (p3.y - p1.y) / 6;
+      path += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${p2.x} ${p2.y}`;
     }
 
     return { path, tangentFrom: points[n - 2], end };
@@ -4822,6 +4820,10 @@ function createMoodboardGrid(container, initialOptions = {}) {
     el.style.width = 'max-content';
     el.style.maxWidth = `${ANNOTATION_TEXT_MAX_WIDTH}px`;
 
+    // Fill the box with the board's background colour so text stays legible
+    // over images (and blends into the board where there's no image behind it).
+    el.style.backgroundColor = state.exportBackgroundHex;
+
     const content = el.querySelector('.annotation-text__content');
     content.style.color = annotation.color;
     content.style.fontSize = `${annotation.fontSize}px`;
@@ -4963,10 +4965,12 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     if (selected && selected.type === 'text' && !state.editingAnnotationId) {
       const nubPos = getArrowNubPosition(selected);
-      const nub = svgEl('circle', {
-        cx: nubPos.x,
-        cy: nubPos.y,
-        r: handleRadius,
+      const r = handleRadius;
+      // Only the bottom half of the disc — a flat top edge along the box's
+      // bottom edge, bulging downward (SVG sweep-flag 0 = bottom half in the
+      // y-down coordinate system).
+      const nub = svgEl('path', {
+        d: `M ${nubPos.x - r} ${nubPos.y} A ${r} ${r} 0 0 0 ${nubPos.x + r} ${nubPos.y} Z`,
         class: 'annotation-arrow-nub',
       });
       nub.style.pointerEvents = 'auto';
