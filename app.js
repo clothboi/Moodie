@@ -21,6 +21,117 @@ const widgetInstances = new WeakMap();
 let nextWidgetId = 1;
 let activeWidgetId = null;
 
+// --- Minimal ZIP writer (STORE method, no compression) ----------------------
+// Images are already compressed (PNG/JPEG), so storing them uncompressed keeps
+// the code tiny while producing a standards-valid archive. Avoids any external
+// dependency.
+const ZIP_CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function zipCrc32(bytes) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i += 1) {
+    crc = (crc >>> 8) ^ ZIP_CRC_TABLE[(crc ^ bytes[i]) & 0xff];
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function buildZipBlob(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+
+  const push = (arr) => {
+    chunks.push(arr);
+    offset += arr.length;
+  };
+  const u16 = (v) => new Uint8Array([v & 0xff, (v >>> 8) & 0xff]);
+  const u32 = (v) => new Uint8Array([v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff]);
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const crc = zipCrc32(file.data);
+    const size = file.data.length;
+    const localOffset = offset;
+
+    push(u32(0x04034b50)); // local file header signature
+    push(u16(20)); // version needed to extract
+    push(u16(0)); // general purpose flag
+    push(u16(0)); // compression method: store
+    push(u16(0)); // last mod time
+    push(u16(0)); // last mod date
+    push(u32(crc));
+    push(u32(size)); // compressed size
+    push(u32(size)); // uncompressed size
+    push(u16(nameBytes.length));
+    push(u16(0)); // extra field length
+    push(nameBytes);
+    push(file.data);
+
+    central.push({ nameBytes, crc, size, localOffset });
+  }
+
+  const centralStart = offset;
+
+  for (const entry of central) {
+    push(u32(0x02014b50)); // central directory header signature
+    push(u16(20)); // version made by
+    push(u16(20)); // version needed
+    push(u16(0)); // flags
+    push(u16(0)); // compression
+    push(u16(0)); // mod time
+    push(u16(0)); // mod date
+    push(u32(entry.crc));
+    push(u32(entry.size));
+    push(u32(entry.size));
+    push(u16(entry.nameBytes.length));
+    push(u16(0)); // extra length
+    push(u16(0)); // comment length
+    push(u16(0)); // disk number start
+    push(u16(0)); // internal attributes
+    push(u32(0)); // external attributes
+    push(u32(entry.localOffset));
+    push(entry.nameBytes);
+  }
+
+  const centralSize = offset - centralStart;
+
+  push(u32(0x06054b50)); // end of central directory signature
+  push(u16(0)); // disk number
+  push(u16(0)); // disk with central directory
+  push(u16(central.length)); // entries on this disk
+  push(u16(central.length)); // total entries
+  push(u32(centralSize));
+  push(u32(centralStart));
+  push(u16(0)); // comment length
+
+  return new Blob(chunks, { type: 'application/zip' });
+}
+
+function mimeToImageExtension(mime) {
+  const map = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/svg+xml': 'svg',
+    'image/avif': 'avif',
+    'image/bmp': 'bmp',
+  };
+  return map[mime] || 'png';
+}
+
 function normalizeWidgetOptions(options = {}) {
   const title = typeof options.title === 'string' && options.title.trim() ? options.title.trim() : DEFAULT_TITLE;
   const storageKey =
@@ -211,6 +322,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
   // Latest pointer position (client coords), so the T shortcut can drop a text
   // box exactly where the cursor is.
   let lastPointerClient = null;
+  // Undo/redo history of board snapshots. Snapshots share the big image `src`
+  // strings by reference (only structure/transforms are cloned), so the stack
+  // stays cheap even for image-heavy boards.
+  const HISTORY_LIMIT = 80;
+  const history = { stack: [], index: -1, applying: false };
 
   function addManagedEventListener(target, type, listener, options) {
     target.addEventListener(type, listener, options);
@@ -2241,6 +2357,116 @@ function createMoodboardGrid(container, initialOptions = {}) {
     } catch {
       // Ignore storage failures.
     }
+    recordHistory();
+  }
+
+  // --- Undo / redo ------------------------------------------------------------
+
+  function cloneItemForHistory(item) {
+    return { ...item, crop: item.crop ? { ...item.crop } : item.crop };
+  }
+
+  function cloneAnnotationForHistory(annotation) {
+    return annotation.type === 'arrow'
+      ? { ...annotation, points: annotation.points.map((point) => ({ x: point.x, y: point.y })) }
+      : { ...annotation };
+  }
+
+  function snapshotBoard() {
+    return {
+      items: state.items.map(cloneItemForHistory),
+      layout: { ...state.layout },
+      annotations: state.annotations.map(cloneAnnotationForHistory),
+    };
+  }
+
+  // Signature of everything that can change EXCEPT image bytes (which never
+  // change for an existing id), used to skip recording no-op saves cheaply.
+  function boardSignature() {
+    const items = state.items.map((it) => [
+      it.id, it.colStart, it.rowStart, it.colSpan, it.rowSpan, it.zIndex,
+      it.crop?.zoom, it.crop?.offsetX, it.crop?.offsetY,
+    ]);
+    const annotations = state.annotations.map((a) =>
+      a.type === 'text'
+        ? ['t', a.id, a.x, a.y, a.width, a.text, a.color, a.fontSize, a.font, a.align]
+        : ['a', a.id, a.fromTextId, a.color, a.weight, a.points.map((p) => [p.x, p.y])],
+    );
+    return JSON.stringify({ items, layout: state.layout, annotations });
+  }
+
+  function recordHistory() {
+    // Skip while applying an undo/redo, and while a text box is mid-edit — the
+    // transient empty box shouldn't be its own undo step; it's captured on commit.
+    if (history.applying || state.editingAnnotationId) {
+      return;
+    }
+
+    const sig = boardSignature();
+
+    if (history.index >= 0 && history.stack[history.index].sig === sig) {
+      return;
+    }
+
+    // Drop any redo branch, then push the new state.
+    history.stack = history.stack.slice(0, history.index + 1);
+    history.stack.push({ snap: snapshotBoard(), sig });
+
+    if (history.stack.length > HISTORY_LIMIT) {
+      history.stack.shift();
+    }
+
+    history.index = history.stack.length - 1;
+  }
+
+  function applyHistoryEntry(entry) {
+    history.applying = true;
+
+    try {
+      state.items = entry.snap.items.map(cloneItemForHistory);
+      state.layout = { ...entry.snap.layout };
+      state.annotations = entry.snap.annotations.map(cloneAnnotationForHistory);
+      state.exportBackgroundHex = state.layout.exportBackgroundHex;
+      state.exportBackgroundHexDraft = state.layout.exportBackgroundHex;
+      // Clear transient sessions/selection that may reference removed content.
+      state.selectedItemIds = [];
+      state.selectionAnchorId = null;
+      state.selectedAnnotationId = null;
+      state.editingAnnotationId = null;
+      state.annotationDragSession = null;
+      state.arrowDrawSession = null;
+      state.arrowEndpointSession = null;
+      state.dragSession = null;
+      state.resizeSession = null;
+      saveBoardState();
+      render();
+    } finally {
+      history.applying = false;
+    }
+  }
+
+  function canUndo() {
+    return history.index > 0;
+  }
+
+  function canRedo() {
+    return history.index < history.stack.length - 1;
+  }
+
+  function undoBoard() {
+    if (!canUndo()) {
+      return;
+    }
+    history.index -= 1;
+    applyHistoryEntry(history.stack[history.index]);
+  }
+
+  function redoBoard() {
+    if (!canRedo()) {
+      return;
+    }
+    history.index += 1;
+    applyHistoryEntry(history.stack[history.index]);
   }
 
   function applyBoardState(next) {
@@ -2270,24 +2496,71 @@ function createMoodboardGrid(container, initialOptions = {}) {
     render();
   }
 
-  function saveBoardToFile() {
+  // Ask the user where to save. Uses the File System Access "Save As" picker
+  // where available (Chromium), falling back to a normal download elsewhere.
+  // Returns null if the user cancels the picker (so callers can bail quietly).
+  // MUST be the first await after a user gesture, or the picker loses activation.
+  async function pickSaveTarget(suggestedName, { description = 'File', accept } = {}) {
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: accept ? [{ description, accept }] : undefined,
+        });
+        return { handle, suggestedName };
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          return null; // user cancelled — do not fall back to a download
+        }
+        // Unsupported context / permission issue: fall back to a download.
+        return { handle: null, suggestedName };
+      }
+    }
+    return { handle: null, suggestedName };
+  }
+
+  async function writeSaveTarget(target, blob) {
+    if (target.handle) {
+      const writable = await target.handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = target.suggestedName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function defaultBoardFileName(extension) {
+    const safeTitle =
+      (settings.title || 'moodboard')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'moodboard';
+    const stamp = new Date().toISOString().slice(0, 10);
+    return `${safeTitle}-${stamp}.${extension}`;
+  }
+
+  async function saveBoardToFile() {
     try {
+      const target = await pickSaveTarget(defaultBoardFileName('json'), {
+        description: 'Moodboard board file',
+        accept: { 'application/json': ['.json'] },
+      });
+
+      if (!target) {
+        return; // cancelled
+      }
+
       const payload = JSON.stringify(serializeBoard(), null, 2);
       const blob = new Blob([payload], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const safeTitle =
-        (settings.title || 'moodboard')
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'moodboard';
-      const stamp = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `${safeTitle}-${stamp}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      await writeSaveTarget(target, blob);
       setExportStatus('Board saved to file', 'success', { resetAfter: EXPORT_STATUS_DURATION_MS });
     } catch {
       setExportStatus('Could not save the board file', 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
@@ -2838,14 +3111,21 @@ function createMoodboardGrid(container, initialOptions = {}) {
     const output = getExportOutputSize(bounds, state.exportTargetEdge);
     const controlsDisabled = !bounds || state.exportState.isExporting;
     const isPdf = state.exportFormat === 'pdf';
+    const isZip = state.exportFormat === 'zip';
+    const imageCount = state.items.length;
 
     refs.exportCurrentSize.textContent = bounds ? `${currentWidth} x ${currentHeight}px` : 'No images';
     refs.exportOutputSize.textContent = bounds
-      ? isPdf ? `${currentWidth} x ${currentHeight}px` : `${output.width} x ${output.height}px PNG`
+      ? isZip
+        ? `${imageCount} image${imageCount === 1 ? '' : 's'}`
+        : isPdf
+          ? `${currentWidth} x ${currentHeight}px`
+          : `${output.width} x ${output.height}px PNG`
       : 'No export available';
-    if (refs.exportOutputLabel) refs.exportOutputLabel.textContent = isPdf ? 'Output PDF' : 'Output PNG';
+    if (refs.exportOutputLabel) refs.exportOutputLabel.textContent = isZip ? 'Images' : isPdf ? 'Output PDF' : 'Output PNG';
     if (refs.exportSizeRow) refs.exportSizeRow.hidden = false;
-    if (refs.exportEdgeRow) refs.exportEdgeRow.hidden = isPdf;
+    if (refs.exportEdgeRow) refs.exportEdgeRow.hidden = isPdf || isZip;
+    if (refs.exportBackgroundRow) refs.exportBackgroundRow.hidden = isZip;
     if (refs.exportPdfOptions) {
       refs.exportPdfOptions.hidden = !isPdf;
       refs.exportPdfOptions.querySelectorAll('[data-export-corners]').forEach((button) => {
@@ -2854,8 +3134,8 @@ function createMoodboardGrid(container, initialOptions = {}) {
         button.setAttribute('aria-pressed', String(selected));
       });
     }
-    if (refs.exportPanelTitle) refs.exportPanelTitle.textContent = isPdf ? 'PDF output' : 'PNG output';
-    if (refs.exportConfirm) refs.exportConfirm.textContent = isPdf ? 'Export PDF' : 'Export PNG';
+    if (refs.exportPanelTitle) refs.exportPanelTitle.textContent = isZip ? 'Image ZIP' : isPdf ? 'PDF output' : 'PNG output';
+    if (refs.exportConfirm) refs.exportConfirm.textContent = isZip ? 'Export ZIP' : isPdf ? 'Export PDF' : 'Export PNG';
     refs.exportPreviewFrame.dataset.transparent = String(!state.exportIncludeBackground);
 
     refs.exportFormatOptions?.querySelectorAll('[data-export-format]').forEach((button) => {
@@ -4098,21 +4378,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
     };
   }
 
-  function rectEdgePoint(rect, toward) {
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const dx = toward.x - cx;
-    const dy = toward.y - cy;
-
-    if (dx === 0 && dy === 0) {
-      return { x: rect.left + rect.width, y: cy };
-    }
-
-    const halfW = rect.width / 2;
-    const halfH = rect.height / 2;
-    const scale = 1 / Math.max(Math.abs(dx) / halfW, Math.abs(dy) / halfH);
-
-    return { x: cx + dx * scale, y: cy + dy * scale };
+  // Arrows pull from — and stay anchored to — the centre of the text box's
+  // bottom edge.
+  function getTextAnchorPoint(annotation) {
+    const rect = getTextBoxRect(annotation);
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height };
   }
 
   function resolveArrowPoints(arrow) {
@@ -4122,8 +4392,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const annotation = getAnnotationById(arrow.fromTextId);
 
       if (annotation && annotation.type === 'text') {
-        const toward = points[1] ?? points[points.length - 1];
-        points[0] = rectEdgePoint(getTextBoxRect(annotation), toward);
+        points[0] = getTextAnchorPoint(annotation);
       }
     }
 
@@ -4317,8 +4586,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
   }
 
   function getArrowNubPosition(annotation) {
-    const rect = getTextBoxRect(annotation);
-    return { x: rect.left + rect.width, y: rect.top + rect.height / 2 };
+    return getTextAnchorPoint(annotation);
   }
 
   // --- Annotation pointer sessions -------------------------------------------
@@ -4687,12 +4955,11 @@ function createMoodboardGrid(container, initialOptions = {}) {
       const fromAnnotation = getAnnotationById(session.fromTextId);
 
       if (fromAnnotation && fromAnnotation.type === 'text' && previewPoints.length) {
-        // Anchor the start to the box edge by REPLACING the first point (not
-        // prepending) so the preview keeps the same point count — and therefore
-        // the same rounded shape — as the committed arrow.
-        const toward = previewPoints[1] ?? previewPoints[previewPoints.length - 1];
+        // Anchor the start to the box's centre-bottom by REPLACING the first
+        // point (not prepending) so the preview keeps the same point count — and
+        // therefore the same rounded shape — as the committed arrow.
         previewPoints = previewPoints.map((point) => ({ x: point.x, y: point.y }));
-        previewPoints[0] = rectEdgePoint(getTextBoxRect(fromAnnotation), toward);
+        previewPoints[0] = getTextAnchorPoint(fromAnnotation);
       }
 
       if (previewPoints.length >= 2) {
@@ -5002,15 +5269,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
+    const bounds = getExportContentBounds();
+
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      setExportStatus('Nothing to export', 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
+      return;
+    }
+
+    // Ask where to save first, while we still have the click's user activation.
+    const target = await pickSaveTarget(defaultBoardFileName('png'), {
+      description: 'PNG image',
+      accept: { 'image/png': ['.png'] },
+    });
+
+    if (!target) {
+      return; // cancelled
+    }
+
     setExportStatus('Exporting PNG...', 'working', { isExporting: true });
 
     try {
-      const bounds = getExportContentBounds();
-
-      if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-        throw new Error('Nothing to export');
-      }
-
       const { canvas } = await createExportRenderSurface({
         bounds,
         targetEdge,
@@ -5029,12 +5307,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
         }, 'image/png');
       });
 
-      const downloadUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = 'moodboard-grid-export.png';
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      await writeSaveTarget(target, blob);
 
       setExportStatus('PNG exported.', 'success', { resetAfter: EXPORT_STATUS_DURATION_MS });
     } catch (error) {
@@ -5054,15 +5327,26 @@ function createMoodboardGrid(container, initialOptions = {}) {
       return;
     }
 
+    const bounds = getExportContentBounds();
+
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+      setExportStatus('Nothing to export', 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
+      return;
+    }
+
+    // Ask where to save first, while we still have the click's user activation.
+    const target = await pickSaveTarget(defaultBoardFileName('pdf'), {
+      description: 'PDF document',
+      accept: { 'application/pdf': ['.pdf'] },
+    });
+
+    if (!target) {
+      return; // cancelled
+    }
+
     setExportStatus('Exporting PDF...', 'working', { isExporting: true });
 
     try {
-      const bounds = getExportContentBounds();
-
-      if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-        throw new Error('Nothing to export');
-      }
-
       const { PDFDocument, rgb, pushGraphicsState, popGraphicsState, moveTo, lineTo, appendBezierCurve, closePath, clip, endPath } =
         await import('https://esm.sh/pdf-lib');
 
@@ -5182,12 +5466,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
       const pdfBytes = await pdfDoc.save();
       const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'moodboard-grid-export.pdf';
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await writeSaveTarget(target, blob);
 
       setExportStatus('PDF exported.', 'success', { resetAfter: EXPORT_STATUS_DURATION_MS });
     } catch (error) {
@@ -5195,6 +5474,69 @@ function createMoodboardGrid(container, initialOptions = {}) {
         error instanceof Error && error.message
           ? error.message
           : 'PDF export failed. Remote images may block browser export.';
+      setExportStatus(message, 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
+    }
+  }
+
+  async function exportImagesAsZip() {
+    if (!state.items.length || state.exportState.isExporting) {
+      return;
+    }
+
+    // Ask where to save first, while we still have the click's user activation.
+    const target = await pickSaveTarget(defaultBoardFileName('zip'), {
+      description: 'ZIP archive',
+      accept: { 'application/zip': ['.zip'] },
+    });
+
+    if (!target) {
+      return; // cancelled
+    }
+
+    setExportStatus('Zipping images...', 'working', { isExporting: true });
+
+    try {
+      const ordered = sortByVisualOrder(state.items);
+      const files = [];
+      const usedNames = new Set();
+      let index = 0;
+
+      for (const item of ordered) {
+        index += 1;
+        try {
+          const response = await fetch(item.src);
+          const blob = await response.blob();
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          const ext = mimeToImageExtension(blob.type);
+          let name = `image-${String(index).padStart(2, '0')}.${ext}`;
+          // Guard against the (unlikely) duplicate name.
+          while (usedNames.has(name)) {
+            name = `image-${String(index).padStart(2, '0')}-${createItemId().slice(0, 4)}.${ext}`;
+          }
+          usedNames.add(name);
+          files.push({ name, data: bytes });
+        } catch {
+          // Skip images that can't be read (e.g. a remote URL blocked by CORS).
+        }
+      }
+
+      if (!files.length) {
+        throw new Error('No images could be read for export');
+      }
+
+      const zipBlob = buildZipBlob(files);
+      await writeSaveTarget(target, zipBlob);
+
+      const skipped = ordered.length - files.length;
+      setExportStatus(
+        skipped > 0
+          ? `Exported ${files.length} of ${ordered.length} images (${skipped} blocked)`
+          : `Exported ${files.length} image${files.length === 1 ? '' : 's'} to ZIP`,
+        skipped > 0 ? 'error' : 'success',
+        { resetAfter: EXPORT_STATUS_DURATION_MS },
+      );
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : 'ZIP export failed.';
       setExportStatus(message, 'error', { resetAfter: EXPORT_STATUS_DURATION_MS });
     }
   }
@@ -6308,13 +6650,14 @@ function createMoodboardGrid(container, initialOptions = {}) {
             <div class="board-export-panel__sizes" data-role="export-format-options">
               <button type="button" class="board-export-panel__size-button board-export-panel__size-button--active" data-export-format="png" aria-pressed="true">PNG</button>
               <button type="button" class="board-export-panel__size-button" data-export-format="pdf" aria-pressed="false">PDF</button>
+              <button type="button" class="board-export-panel__size-button" data-export-format="zip" aria-pressed="false">Images (ZIP)</button>
             </div>
           </div>
           <div class="board-export-panel__meta">
             <span class="board-export-panel__label">Current cluster</span>
             <span class="board-export-panel__value" data-role="export-current-size"></span>
           </div>
-          <div class="board-export-panel__meta">
+          <div class="board-export-panel__meta" data-role="export-background-row">
             <span class="board-export-panel__label">Background</span>
             <div class="board-export-panel__sizes" data-role="export-background-modes">
               <button
@@ -6405,6 +6748,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
     refs.exportPreviewMessage = getRoleRef('export-preview-message');
     refs.exportCurrentSize = getRoleRef('export-current-size');
     refs.exportBackgroundModes = getRoleRef('export-background-modes');
+    refs.exportBackgroundRow = getRoleRef('export-background-row');
     refs.layoutBackgroundColor = getRoleRef('layout-background-color');
     refs.layoutBackgroundHex = getRoleRef('layout-background-hex');
     refs.layoutBackgroundReset = getRoleRef('layout-background-reset');
@@ -6557,10 +6901,13 @@ function createMoodboardGrid(container, initialOptions = {}) {
     });
     addManagedEventListener(refs.exportConfirm, 'click', async () => {
       const exportSettings = getExportSettings();
+      const format = state.exportFormat;
       setFloatingPanels(false, false);
       renderHud();
-      if (state.exportFormat === 'pdf') {
+      if (format === 'pdf') {
         await exportClusterAsPdf(exportSettings);
+      } else if (format === 'zip') {
+        await exportImagesAsZip();
       } else {
         await exportClusterAsPng(exportSettings);
       }
@@ -6899,6 +7246,30 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
     addManagedEventListener(window, 'keydown', (event) => {
       if (!isWidgetActive()) return;
+      // Undo / redo — Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl/Cmd+Y). Skipped
+      // while editing text so the browser's own text undo still works there.
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        (event.key === 'z' || event.key === 'Z' || event.key === 'y' || event.key === 'Y')
+      ) {
+        if (
+          state.editingAnnotationId ||
+          isInteractiveTarget(event.target) ||
+          (event.target instanceof Element && event.target.closest('[contenteditable="true"]'))
+        ) {
+          return;
+        }
+
+        const redo = event.key === 'y' || event.key === 'Y' || event.shiftKey;
+        event.preventDefault();
+        if (redo) {
+          redoBoard();
+        } else {
+          undoBoard();
+        }
+        return;
+      }
       if (
         (event.key === 't' || event.key === 'T') &&
         !event.metaKey &&
@@ -6954,6 +7325,7 @@ function createMoodboardGrid(container, initialOptions = {}) {
 
   buildAppShell();
   render();
+  recordHistory(); // seed the undo baseline with the loaded board
 
   const instance = {
     container,
